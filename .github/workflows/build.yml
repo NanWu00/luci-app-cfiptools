@@ -22,22 +22,28 @@ jobs:
 
       - name: 动态获取并下载最新 ImmortalWrt 24.10 SDK
         run: |
-          # 1. 自动抓取目前最新的 24.10.x 版本号（彻底杜绝 404 失效）
+          # 1. 自动抓取目前最新的 24.10.x 版本号
           LATEST_VER=$(curl -sL https://downloads.immortalwrt.org/releases/ | grep -oE '24\.10\.[0-9]+' | sort -V | tail -n 1)
           echo "==== 检测到最新稳定版本: $LATEST_VER ===="
           
           # 2. 拼接该版本的 x86/64 官方下载目录
           BASE_URL="https://downloads.immortalwrt.org/releases/${LATEST_VER}/targets/x86/64/"
           
-          # 3. 自动解析该目录下的 SDK 真实压缩包名称
-          SDK_FILE=$(curl -sL "$BASE_URL" | grep -oE 'immortalwrt-sdk-[^"]+\.tar\.xz' | head -n 1)
+          # 3. 终极容错解析：精准抓取包含 'immortalwrt-sdk' 且以 '.tar.xz' 结尾的真实文件名
+          SDK_FILE=$(curl -sL "$BASE_URL" | grep -oE 'immortalwrt-sdk-[a-zA-Z0-9_\.\-]+tar\.xz' | head -n 1)
+          
+          # 4. 防御性检查：如果依然为空，使用兜底机制直接强行拼接标准文件名
+          if [ -z "$SDK_FILE" ]; then
+            echo "==== [警告] 动态抓取未命中，启动标准命名别名兜底 ===="
+            SDK_FILE="immortalwrt-sdk-${LATEST_VER}-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.xz"
+          fi
           echo "==== 准备下载 SDK: $SDK_FILE ===="
           
-          # 4. 下载并解压
+          # 5. 下载并解压
           wget "${BASE_URL}${SDK_FILE}"
           tar -xf "$SDK_FILE"
           
-          # 5. 重命名解压出来的长文件夹，统一称作 sdk
+          # 6. 重命名解压出来的长文件夹，统一称作 sdk
           mv immortalwrt-sdk-* sdk
 
       - name: 更新 Feeds 并安装 LuCI 依赖
