@@ -1,4 +1,4 @@
-name: 自动编译 ImmortalWrt APK
+name: 自动编译 ImmortalWrt 安装包
 
 on:
   push:
@@ -18,13 +18,27 @@ jobs:
       - name: 配置编译环境
         run: |
           sudo apt update
-          sudo apt install -y build-essential libncurses5-dev gawk git libssl-dev gettext zlib1g-dev swig unzip time rsync python3 wget
+          sudo apt install -y build-essential libncurses5-dev gawk git libssl-dev gettext zlib1g-dev swig unzip time rsync python3 wget curl
 
-      - name: 下载并解压 ImmortalWrt 24.10 SDK
+      - name: 动态获取并下载最新 ImmortalWrt 24.10 SDK
         run: |
-          wget https://downloads.immortalwrt.org/releases/24.10.0/targets/x86/64/immortalwrt-sdk-24.10.0-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.xz
-          tar -xf immortalwrt-sdk-24.10.0-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.xz
-          mv immortalwrt-sdk-24.10.0-x86-64_gcc-13.3.0_musl.Linux-x86_64 sdk
+          # 1. 自动抓取目前最新的 24.10.x 版本号（彻底杜绝 404 失效）
+          LATEST_VER=$(curl -sL https://downloads.immortalwrt.org/releases/ | grep -oE '24\.10\.[0-9]+' | sort -V | tail -n 1)
+          echo "==== 检测到最新稳定版本: $LATEST_VER ===="
+          
+          # 2. 拼接该版本的 x86/64 官方下载目录
+          BASE_URL="https://downloads.immortalwrt.org/releases/${LATEST_VER}/targets/x86/64/"
+          
+          # 3. 自动解析该目录下的 SDK 真实压缩包名称
+          SDK_FILE=$(curl -sL "$BASE_URL" | grep -oE 'immortalwrt-sdk-[^"]+\.tar\.xz' | head -n 1)
+          echo "==== 准备下载 SDK: $SDK_FILE ===="
+          
+          # 4. 下载并解压
+          wget "${BASE_URL}${SDK_FILE}"
+          tar -xf "$SDK_FILE"
+          
+          # 5. 重命名解压出来的长文件夹，统一称作 sdk
+          mv immortalwrt-sdk-* sdk
 
       - name: 更新 Feeds 并安装 LuCI 依赖
         run: |
@@ -34,20 +48,21 @@ jobs:
 
       - name: 将插件源码移入 SDK 车间
         run: |
-          # 将仓库根目录下的 luci-app-cfiptools 复制到 SDK 的 package 目录中
+          # 注意：请确保你的仓库根目录下确实有一个叫 luci-app-cfiptools 的文件夹
           cp -r luci-app-cfiptools sdk/package/
 
-      - name: 生成配置并开始编译
+      - name: 生成配置并开始定向编译
         run: |
           cd sdk
           make defconfig
-          # 针对你的插件进行定向编译
           make package/luci-app-cfiptools/compile V=s
 
-      - name: 提取并上传 APK 安装包
+      - name: 提取并上传安装包
         uses: actions/upload-artifact@v4
         with:
-          name: luci-app-cfiptools-apk
-          # 抓取生成的任意 apk 或 ipk 文件
-          path: sdk/bin/packages/**/*.apk
+          name: luci-app-cfiptools-package
+          # 同时捕获 apk 和 ipk，防止官方在不同次世代版本中切换后缀，确保万无一失
+          path: |
+            sdk/bin/packages/**/*.apk
+            sdk/bin/packages/**/*.ipk
           retention-days: 7
