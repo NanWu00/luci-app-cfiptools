@@ -2,9 +2,11 @@ name: 自动编译 ImmortalWrt 安装包
 
 on:
   push:
-    branches:
-      - main  # 推送时触发
-  workflow_dispatch: # 允许手动触发
+    branches: [ main ]
+    paths:
+      - 'luci-app-cfiptools/**'
+      - '.github/workflows/build.yml'   # 修改工作流自身也触发
+  workflow_dispatch:                    # 允许手动触发
 
 jobs:
   build:
@@ -18,53 +20,52 @@ jobs:
       - name: 配置编译环境
         run: |
           sudo apt update
-          # 新增了 zstd 依赖，以支持解压官方最新采用的 .tar.zst 格式
-          sudo apt install -y build-essential libncurses5-dev gawk git libssl-dev gettext zlib1g-dev swig unzip time rsync python3 wget curl zstd
+          sudo apt install -y build-essential libncurses-dev gawk git libssl-dev \
+            gettext zlib1g-dev swig unzip time rsync python3 wget curl zstd
 
-      - name: 完美提取并下载 ImmortalWrt SDK
+      - name: 下载并校验 ImmortalWrt SDK
         run: |
-          # 1. 抓取最新稳定版本号
-          LATEST_VER=$(curl -sL https://downloads.immortalwrt.org/releases/ | grep -oE '24\.10\.[0-9]+' | sort -V | tail -n 1)
-          echo "==== 检测到最新稳定版本: $LATEST_VER ===="
-          
-          # 2. 拼接目标目录
+          set -euo pipefail
+
+          # 1. 获取最新稳定版本号（通用三位版本号匹配，不写死主版本）
+          LATEST_VER=$(curl -sL https://downloads.immortalwrt.org/releases/ | \
+                       grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -Vu | tail -1)
+          echo "检测到最新稳定版本: ${LATEST_VER}"
+
+          # 2. 拼接 SDK 所在目录 URL
           BASE_URL="https://downloads.immortalwrt.org/releases/${LATEST_VER}/targets/x86/64/"
-          
-          # 3. 终极杀招：直接读取官方的 sha256sums 纯文本清单，100% 精准提取 SDK 真实完整文件名
-          SDK_FILE=$(curl -sL "${BASE_URL}sha256sums" | grep 'immortalwrt-sdk' | awk '{print $2}' | sed 's/*//g' | head -n 1)
-          
-          if [ -z "$SDK_FILE" ]; then
-            echo "==== [致命错误] 在校验清单中未找到 SDK 文件！ ===="
-            exit 1
-          fi
-          
-          echo "==== 成功锁定 SDK 真实文件: $SDK_FILE ===="
-          
-          # 4. 下载并智能解压 (tar 会根据后缀自动调用 xz 或 zstd)
+
+          # 3. 下载校验清单，从中精准提取 SDK 文件名
+          wget "${BASE_URL}sha256sums"
+          SDK_FILE=$(awk '/immortalwrt-sdk/ {print $2}' sha256sums | sed 's/^*//g' | head -1)
+          echo "锁定 SDK 文件: ${SDK_FILE}"
+
+          # 4. 下载 SDK
           wget "${BASE_URL}${SDK_FILE}"
-          tar -xf "$SDK_FILE"
-          
-          # 5. 重命名为统一的 sdk 目录
+
+          # 5. 执行 sha256 校验，确保文件完整且未被篡改
+          grep "${SDK_FILE}" sha256sums | sha256sum -c --ignore-missing
+
+          # 6. 解压并统一目录名
+          tar -xf "${SDK_FILE}"
           mv immortalwrt-sdk-* sdk
 
-      - name: 更新 Feeds 并安装 LuCI 依赖
+      - name: 准备编译环境（feeds 更新）
         run: |
           cd sdk
           ./scripts/feeds update -a
           ./scripts/feeds install -a -p luci
 
-      - name: 将插件源码移入 SDK 车间
-        run: |
-          # 确保 luci-app-cfiptools 在你的仓库根目录下
-          cp -r luci-app-cfiptools sdk/package/
+      - name: 植入插件源码
+        run: cp -r luci-app-cfiptools sdk/package/
 
-      - name: 生成配置并开始定向编译
+      - name: 编译插件
         run: |
           cd sdk
-          make defconfig
+          # SDK 已自带完整 .config，无需 make defconfig，直接编译即可
           make package/luci-app-cfiptools/compile V=s
 
-      - name: 提取并上传终极安装包
+      - name: 上传安装包
         uses: actions/upload-artifact@v4
         with:
           name: luci-app-cfiptools-package
