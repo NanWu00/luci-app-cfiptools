@@ -1,0 +1,53 @@
+name: 自动编译 ImmortalWrt APK
+
+on:
+  push:
+    branches:
+      - main  # 当你推送代码到 main 分支时自动触发
+  workflow_dispatch: # 允许你在网页上手动点击按钮触发
+
+jobs:
+  build:
+    name: 编译 luci-app-cfiptools
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 配置编译环境
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential libncurses5-dev gawk git libssl-dev gettext zlib1g-dev swig unzip time rsync python3 wget
+
+      - name: 下载并解压 ImmortalWrt 24.10 SDK
+        run: |
+          wget https://downloads.immortalwrt.org/releases/24.10.0/targets/x86/64/immortalwrt-sdk-24.10.0-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.xz
+          tar -xf immortalwrt-sdk-24.10.0-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.xz
+          mv immortalwrt-sdk-24.10.0-x86-64_gcc-13.3.0_musl.Linux-x86_64 sdk
+
+      - name: 更新 Feeds 并安装 LuCI 依赖
+        run: |
+          cd sdk
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a -p luci
+
+      - name: 将插件源码移入 SDK 车间
+        run: |
+          # 将仓库根目录下的 luci-app-cfiptools 复制到 SDK 的 package 目录中
+          cp -r luci-app-cfiptools sdk/package/
+
+      - name: 生成配置并开始编译
+        run: |
+          cd sdk
+          make defconfig
+          # 针对你的插件进行定向编译
+          make package/luci-app-cfiptools/compile V=s
+
+      - name: 提取并上传 APK 安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: luci-app-cfiptools-apk
+          # 抓取生成的任意 apk 或 ipk 文件
+          path: sdk/bin/packages/**/*.apk
+          retention-days: 7
