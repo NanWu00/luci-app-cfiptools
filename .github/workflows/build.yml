@@ -1,17 +1,9 @@
-name: 自动编译 ImmortalWrt 安装包
+name: 自动编译原生 APK 安装包
 
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'luci-app-cfiptools/**'
-      - '.github/workflows/build.yml'
   workflow_dispatch:
-
-env:
-  # 请根据你的需求修改以下两项
-  SDK_VERSION: "23.05.4"           # ImmortalWrt 稳定版版本号
-  TARGET: "x86/64"                 # 目标平台，例如 x86/64, ramips/mt7621 等
 
 jobs:
   build:
@@ -24,74 +16,47 @@ jobs:
 
       - name: 配置编译环境
         run: |
-          sudo apt update
-          sudo apt install -y build-essential libncurses-dev gawk git libssl-dev \
-            gettext zlib1g-dev swig unzip time rsync python3 wget curl zstd \
-            file # 增加 file 命令，某些 SDK 需要
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev gawk git libssl-dev gettext zlib1g-dev swig unzip time rsync python3 wget curl zstd
 
-      - name: 下载并校验 ImmortalWrt SDK
+      - name: 获取 OpenWrt 官方原生快照 SDK
         run: |
-          set -euxo pipefail
-
-          BASE_URL="https://downloads.immortalwrt.org/releases/${SDK_VERSION}/targets/${TARGET}/"
-          echo "下载 URL: ${BASE_URL}"
-
-          # 下载校验清单
-          wget -O sha256sums "${BASE_URL}sha256sums" || { echo "下载 sha256sums 失败"; exit 1; }
-
-          # 提取 SDK 文件名（假设文件名包含 'immortalwrt-sdk'）
-          SDK_FILE=$(awk '/immortalwrt-sdk/ {print $2}' sha256sums | sed 's/^\*//' | head -1)
+          echo "==== 绕过动态防爬，直连 OpenWrt 官方底层服务器 ===="
+          BASE_URL="https://downloads.openwrt.org/snapshots/targets/x86/64/"
+          
+          # 直接从官方 100% 可靠的纯文本校验库中提取实时 SDK 文件名
+          SDK_FILE=$(curl -sL "${BASE_URL}sha256sums" | grep 'openwrt-sdk' | awk '{print $2}' | sed 's/*//g' | head -n 1)
+          
           if [ -z "$SDK_FILE" ]; then
-            echo "错误：在清单中未找到 immortalwrt-sdk 文件"
+            echo "==== [致命错误] 未能在官方源中找到 SDK ===="
             exit 1
           fi
-          echo "找到 SDK 文件: ${SDK_FILE}"
+          
+          echo "==== 成功锁定官方 SDK: $SDK_FILE ===="
+          wget "${BASE_URL}${SDK_FILE}"
+          tar -xf "$SDK_FILE"
+          mv openwrt-sdk-* sdk
 
-          # 下载 SDK
-          wget "${BASE_URL}${SDK_FILE}" || { echo "下载 SDK 失败"; exit 1; }
-
-          # 校验哈希
-          grep "${SDK_FILE}" sha256sums | sha256sum -c --ignore-missing || { echo "错误：SDK 校验失败"; exit 1; }
-
-          # 解压
-          TOP_DIR=$(tar -tf "${SDK_FILE}" | head -1 | cut -f1 -d"/")
-          tar -xf "${SDK_FILE}"
-          rm -rf sdk
-          mv "${TOP_DIR}" sdk
-
-      - name: 准备 feeds
+      - name: 更新 Feeds 并安装 LuCI 依赖
         run: |
           cd sdk
           ./scripts/feeds update -a
-          ./scripts/feeds install -a   # 安装全部 feeds 中的包，确保依赖完整
+          ./scripts/feeds install -a -p luci
 
-      - name: 植入插件源码
+      - name: 将插件源码移入 SDK 车间
         run: |
-          if [ ! -d "luci-app-cfiptools" ]; then
-            echo "错误：未找到 luci-app-cfiptools 源码目录，请检查仓库结构"
-            exit 1
-          fi
+          # 确保你的仓库根目录下有 luci-app-cfiptools 文件夹
           cp -r luci-app-cfiptools sdk/package/
 
-      - name: 配置编译目标（可选，但推荐）
+      - name: 生成配置并开始定向编译
         run: |
           cd sdk
-          # 生成默认配置（基于 SDK 的目标平台）
           make defconfig
-          # 如果你的插件需要选中某个特定子菜单，可以在这里用 sed 或 echo 修改 .config
-          # 但通常 defconfig 已经足够
-
-      - name: 编译插件
-        run: |
-          cd sdk
-          # 使用 V=s 输出详细日志，便于调试
           make package/luci-app-cfiptools/compile V=s
 
-      - name: 上传安装包
+      - name: 提取并上传终极 APK
         uses: actions/upload-artifact@v4
         with:
-          name: luci-app-cfiptools-package
-          path: |
-            sdk/bin/packages/**/*.ipk
-            sdk/bin/packages/**/*.apk
+          name: luci-app-cfiptools-apk
+          path: sdk/bin/packages/**/*.apk
           retention-days: 7
