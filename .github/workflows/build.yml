@@ -5,8 +5,8 @@ on:
     branches: [ main ]
     paths:
       - 'luci-app-cfiptools/**'
-      - '.github/workflows/build.yml'   # 修改工作流自身也触发
-  workflow_dispatch:                    # 允许手动触发
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -27,27 +27,23 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 1. 获取最新稳定版本号（通用三位版本号匹配，不写死主版本）
           LATEST_VER=$(curl -sL https://downloads.immortalwrt.org/releases/ | \
                        grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -Vu | tail -1)
           echo "检测到最新稳定版本: ${LATEST_VER}"
 
-          # 2. 拼接 SDK 所在目录 URL
           BASE_URL="https://downloads.immortalwrt.org/releases/${LATEST_VER}/targets/x86/64/"
 
-          # 3. 下载校验清单，从中精准提取 SDK 文件名
           wget "${BASE_URL}sha256sums"
           SDK_FILE=$(awk '/immortalwrt-sdk/ {print $2}' sha256sums | sed 's/^*//g' | head -1)
           echo "锁定 SDK 文件: ${SDK_FILE}"
 
-          # 4. 下载 SDK
           wget "${BASE_URL}${SDK_FILE}"
-
-          # 5. 执行 sha256 校验，确保文件完整且未被篡改
           grep "${SDK_FILE}" sha256sums | sha256sum -c --ignore-missing
 
-          # 6. 解压并统一目录名
           tar -xf "${SDK_FILE}"
+
+          # 清理可能的同名文件/文件夹，避免冲突
+          rm -rf sdk
           mv immortalwrt-sdk-* sdk
 
       - name: 准备编译环境（feeds 更新）
@@ -62,7 +58,6 @@ jobs:
       - name: 编译插件
         run: |
           cd sdk
-          # SDK 已自带完整 .config，无需 make defconfig，直接编译即可
           make package/luci-app-cfiptools/compile V=s
 
       - name: 上传安装包
