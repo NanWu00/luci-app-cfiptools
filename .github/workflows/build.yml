@@ -5,8 +5,13 @@ on:
     branches: [ main ]
     paths:
       - 'luci-app-cfiptools/**'
-      - '.github/workflows/build.yml'   # 修改工作流自身时也触发
-  workflow_dispatch:                    # 允许手动触发
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+
+env:
+  # 请根据你的需求修改以下两项
+  SDK_VERSION: "23.05.4"           # ImmortalWrt 稳定版版本号
+  TARGET: "x86/64"                 # 目标平台，例如 x86/64, ramips/mt7621 等
 
 jobs:
   build:
@@ -21,62 +26,44 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y build-essential libncurses-dev gawk git libssl-dev \
-            gettext zlib1g-dev swig unzip time rsync python3 wget curl zstd
+            gettext zlib1g-dev swig unzip time rsync python3 wget curl zstd \
+            file # 增加 file 命令，某些 SDK 需要
 
       - name: 下载并校验 ImmortalWrt SDK
         run: |
-          # 开启调试输出，方便排查
           set -euxo pipefail
 
-          # 1. 获取最新稳定版本号
-          LATEST_VER=$(curl -sL https://downloads.immortalwrt.org/releases/ | \
-                       grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -Vu | tail -1)
-          if [ -z "$LATEST_VER" ]; then
-            echo "错误：未能检测到任何版本号"
-            exit 1
-          fi
-          echo "检测到最新稳定版本: ${LATEST_VER}"
+          BASE_URL="https://downloads.immortalwrt.org/releases/${SDK_VERSION}/targets/${TARGET}/"
+          echo "下载 URL: ${BASE_URL}"
 
-          # 2. 构建下载 URL
-          BASE_URL="https://downloads.immortalwrt.org/releases/${LATEST_VER}/targets/x86/64/"
-
-          # 3. 下载校验清单
+          # 下载校验清单
           wget -O sha256sums "${BASE_URL}sha256sums" || { echo "下载 sha256sums 失败"; exit 1; }
 
-          # 4. 从清单中提取 SDK 文件名（去掉可能的前导 *）
-          SDK_FILE=$(awk '/immortalwrt-sdk/ {print $2}' sha256sums | sed 's/^*//g' | head -1)
+          # 提取 SDK 文件名（假设文件名包含 'immortalwrt-sdk'）
+          SDK_FILE=$(awk '/immortalwrt-sdk/ {print $2}' sha256sums | sed 's/^\*//' | head -1)
           if [ -z "$SDK_FILE" ]; then
             echo "错误：在清单中未找到 immortalwrt-sdk 文件"
             exit 1
           fi
-          echo "锁定 SDK 文件: ${SDK_FILE}"
+          echo "找到 SDK 文件: ${SDK_FILE}"
 
-          # 5. 下载 SDK
+          # 下载 SDK
           wget "${BASE_URL}${SDK_FILE}" || { echo "下载 SDK 失败"; exit 1; }
 
-          # 6. 校验哈希（从清单中提取对应行进行校验）
-          grep "${SDK_FILE}" sha256sums | sha256sum -c --ignore-missing
-          if [ $? -ne 0 ]; then
-            echo "错误：SDK 校验失败，文件可能损坏"
-            exit 1
-          fi
+          # 校验哈希
+          grep "${SDK_FILE}" sha256sums | sha256sum -c --ignore-missing || { echo "错误：SDK 校验失败"; exit 1; }
 
-          # 7. 获取解压后的顶层目录名（避免通配符歧义）
+          # 解压
           TOP_DIR=$(tar -tf "${SDK_FILE}" | head -1 | cut -f1 -d"/")
-          echo "解压后目录名: ${TOP_DIR}"
-
-          # 8. 解压
           tar -xf "${SDK_FILE}"
-
-          # 9. 清理并重命名为 sdk
           rm -rf sdk
           mv "${TOP_DIR}" sdk
 
-      - name: 准备编译环境（更新 feeds）
+      - name: 准备 feeds
         run: |
           cd sdk
           ./scripts/feeds update -a
-          ./scripts/feeds install -a -p luci
+          ./scripts/feeds install -a   # 安装全部 feeds 中的包，确保依赖完整
 
       - name: 植入插件源码
         run: |
@@ -86,9 +73,18 @@ jobs:
           fi
           cp -r luci-app-cfiptools sdk/package/
 
+      - name: 配置编译目标（可选，但推荐）
+        run: |
+          cd sdk
+          # 生成默认配置（基于 SDK 的目标平台）
+          make defconfig
+          # 如果你的插件需要选中某个特定子菜单，可以在这里用 sed 或 echo 修改 .config
+          # 但通常 defconfig 已经足够
+
       - name: 编译插件
         run: |
           cd sdk
+          # 使用 V=s 输出详细日志，便于调试
           make package/luci-app-cfiptools/compile V=s
 
       - name: 上传安装包
@@ -96,6 +92,6 @@ jobs:
         with:
           name: luci-app-cfiptools-package
           path: |
-            sdk/bin/packages/**/*.apk
             sdk/bin/packages/**/*.ipk
+            sdk/bin/packages/**/*.apk
           retention-days: 7
