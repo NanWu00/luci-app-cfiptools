@@ -24,7 +24,7 @@ jobs:
           echo "==== 绕过动态防爬，直连 OpenWrt 官方底层服务器 ===="
           BASE_URL="https://downloads.openwrt.org/snapshots/targets/x86/64/"
           
-          # 直接从官方 100% 可靠的纯文本校验库中提取实时 SDK 文件名
+          # 提取实时 SDK 文件名
           SDK_FILE=$(curl -sL "${BASE_URL}sha256sums" | grep 'openwrt-sdk' | awk '{print $2}' | sed 's/*//g' | head -n 1)
           
           if [ -z "$SDK_FILE" ]; then
@@ -35,6 +35,11 @@ jobs:
           echo "==== 成功锁定官方 SDK: $SDK_FILE ===="
           wget "${BASE_URL}${SDK_FILE}"
           tar -xf "$SDK_FILE"
+          
+          # 【核心修复点】先删除下载的压缩包，防止通配符匹配多个文件
+          rm -f "$SDK_FILE"
+          
+          # 现在安心重命名唯一的文件夹
           mv openwrt-sdk-* sdk
 
       - name: 更新 Feeds 并安装 LuCI 依赖
@@ -45,7 +50,6 @@ jobs:
 
       - name: 将插件源码移入 SDK 车间
         run: |
-          # 确保你的仓库根目录下有 luci-app-cfiptools 文件夹
           cp -r luci-app-cfiptools sdk/package/
 
       - name: 生成配置并开始定向编译
