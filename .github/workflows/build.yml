@@ -1,8 +1,8 @@
 name: 自动编译原生 APK 安装包
 
-on:
+于:
   push:
-    branches: [ main ]
+    分支: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -50,7 +50,11 @@ jobs:
 
       - name: 将插件源码移入 SDK 车间
         run: |
-          cp -r luci-app-cfiptools sdk/package/
+          # 1. 在 SDK 的 package 目录下手动创建一个专属文件夹
+          mkdir -p sdk/package/luci-app-cfiptools
+          
+          # 2. 用 rsync 把当前仓库里除了环境配置外的所有源码文件，全部装进这个文件夹里
+          rsync -a --exclude='sdk' --exclude='.git' --exclude='.github' ./ sdk/package/luci-app-cfiptools/
 
       - name: 生成配置并开始定向编译
         run: |
