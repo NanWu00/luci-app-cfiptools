@@ -1,9 +1,13 @@
 name: 自动编译原生 APK 安装包
 
-于:
+on:
   push:
-    分支: [ main ]
+    branches: [ main ]
   workflow_dispatch:
+
+# 消除刚才那个烦人的 Node.js 黄色警告
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -36,10 +40,8 @@ jobs:
           wget "${BASE_URL}${SDK_FILE}"
           tar -xf "$SDK_FILE"
           
-          # 【核心修复点】先删除下载的压缩包，防止通配符匹配多个文件
+          # 先删除下载的压缩包，防止通配符匹配冲突
           rm -f "$SDK_FILE"
-          
-          # 现在安心重命名唯一的文件夹
           mv openwrt-sdk-* sdk
 
       - name: 更新 Feeds 并安装 LuCI 依赖
@@ -48,12 +50,12 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a -p luci
 
-      - name: 将插件源码移入 SDK 车间
+      - name: 智能收集插件源码并移入车间 (已修复)
         run: |
-          # 1. 在 SDK 的 package 目录下手动创建一个专属文件夹
+          # 1. 在 SDK 内部提前建好专属文件夹
           mkdir -p sdk/package/luci-app-cfiptools
           
-          # 2. 用 rsync 把当前仓库里除了环境配置外的所有源码文件，全部装进这个文件夹里
+          # 2. 像扫地一样，把当前仓库里的所有源码文件自动收集进去
           rsync -a --exclude='sdk' --exclude='.git' --exclude='.github' ./ sdk/package/luci-app-cfiptools/
 
       - name: 生成配置并开始定向编译
