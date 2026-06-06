@@ -44,7 +44,7 @@ load_uci() {
     CFG_show_bandwidth=$(uci_get show_bandwidth "1")
     CFG_numbered_regions=$(uci_get numbered_regions "0")
     CFG_verbose=$(uci_get verbose "0")
-    CFG_fast_label=$(uci_get fast_label "自选高速")
+    CFG_fast_label=$(uci_get fast_label "优选高速")
     CFG_update_readme=$(uci_get update_readme "0")
     CFG_readme_file=$(uci_get readme_file "$DATA_DIR/README.MD")
     CFG_github_upload_enabled=$(uci_get github_upload_enabled "0")
@@ -122,10 +122,9 @@ run_post_command() {
     fi
 }
 
-# 使用安全方式传递参数
 run_python() {
     cd "$DATA_DIR"
-    # -u 强制取消 Python 的全缓冲，并确保标准输出实时写进你的 LOG_FILE
+    # -u 强制取消 Python 的全缓冲，实时写入日志
     python3 -u "$DATA_DIR/update.py" "$@" >> "$LOG_FILE" 2>&1
 }
 
@@ -136,6 +135,9 @@ run_test() {
         exit 1
     fi
     echo $$ > "$PID_FILE"
+
+    # 新增防弹装甲：强制执行清理操作，防止异常中断导致系统防火墙死锁
+    trap 'cleanup_proxy_bypass; rm -f "$PID_FILE"' EXIT INT TERM
 
     load_uci
     run_pre_command
@@ -165,7 +167,6 @@ run_test() {
     if [ ! -f "$INPUT_FILE" ]; then
         set_status "失败：无输入文件"
         log "ERROR: Input file $INPUT_FILE not found and download failed"
-        rm -f "$PID_FILE"
         exit 1
     fi
 
@@ -180,7 +181,6 @@ run_test() {
     TCP_TIMEOUT_MS="${CFG_tcp_timeout_ms:-1500}"
     TCP_TIMEOUT_SEC=$(awk "BEGIN {printf \"%.3f\", $TCP_TIMEOUT_MS / 1000}")
 
-    # 构建参数数组
     set --
     set -- "--input" "$INPUT_FILE"
     set -- "$@" "--output" "$FULL_OUTPUT"
@@ -196,7 +196,7 @@ run_test() {
 
     if [ "${CFG_numbered_regions:-0}" = "1" ]; then set -- "$@" "--numbered"; fi
     if [ "${CFG_verbose:-0}" = "1" ]; then set -- "$@" "--verbose"; fi
-    set -- "$@" "--fast-label" "${CFG_fast_label:-自选高速}"
+    set -- "$@" "--fast-label" "${CFG_fast_label:-优选高速}"
 
     set_status "TCP延迟测速"
     log "Starting speed test..."
@@ -206,13 +206,9 @@ run_test() {
         local exit_code=$?
         set_status "失败"
         log "update.py failed with exit code $exit_code"
-        cleanup_proxy_bypass
         run_post_command
-        rm -f "$PID_FILE"
         exit $exit_code
     fi
-
-    cleanup_proxy_bypass
 
     if [ "${CFG_update_readme:-0}" = "1" ]; then
         set_status "生成README"
@@ -252,7 +248,7 @@ run_test() {
     log "All tasks completed"
 
     run_post_command
-    rm -f "$PID_FILE"
+    # 清理操作将由 trap 自动接管
 }
 
 run_test

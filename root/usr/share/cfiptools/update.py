@@ -147,25 +147,6 @@ def load_nodes(path: Path) -> list[Node]:
                 seen.add(node); nodes.append(node)
     return nodes
 
-def refresh_input_file(url: str, path: Path, timeout: float) -> bool:
-    temp_path = path.with_name(f"{path.name}.download")
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        request = urllib.request.Request(url, headers={"User-Agent": "cf-ip-updater/1.0"})
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            if response.status != 200: raise RuntimeError(f"HTTP {response.status}")
-            with temp_path.open("wb") as file: shutil.copyfileobj(response, file)
-        if temp_path.stat().st_size == 0: raise RuntimeError("downloaded file is empty")
-        temp_path.replace(path)
-        print(f"Downloaded input file from {url} to {path}")
-        return True
-    except Exception as exc:
-        if temp_path.exists():
-            try: temp_path.unlink()
-            except OSError: pass
-        print(f"Input download failed: {exc}; using local {path}")
-        return False
-
 def positive_worker_count(req: int, total: int) -> int: return max(1, min(max(1, req), max(1, total)))
 
 async def tcping(node: Node, timeout: float) -> float | None:
@@ -191,19 +172,20 @@ async def run_tcp_tests(nodes: Sequence[Node], *, timeout: float, workers: int, 
         nonlocal completed
         while True:
             node = await queue.get()
+            if node is None:
+                queue.task_done()  # 必须告诉队列毒药已消耗，防止死锁
+                return
             try:
-                if node is None: return
                 latency = await tcping(node, timeout)
                 if latency is not None:
                     results.append(TcpResult(node=node, latency_ms=latency))
-                    if verbose:
-                        print(f"\n[LAT] {node.raw} -> {latency} ms")
+                    if verbose: print(f"\n[LAT] {node.raw} -> {latency} ms")
+            except Exception as e:
+                if verbose: print(f"\n[LAT Error] {node.raw} -> {e}")
+            finally:
                 completed += 1
                 print(f"\rTCP latency: {completed}/{total}", end='', flush=True)
                 queue.task_done()
-            except:
-                queue.task_done()
-                raise
 
     tasks = [asyncio.create_task(worker()) for _ in range(positive_worker_count(workers, len(nodes)))]
     for node in nodes: queue.put_nowait(node)
@@ -253,7 +235,9 @@ async def measure_speed_async(node: Node, timeout: float, process_buffer: float)
         return parse_curl_speed(stdout_bytes.decode('utf-8'))
     except Exception:
         if proc:
-            try: proc.kill()
+            try: 
+                proc.kill()
+                await proc.wait()  # 彻底回收僵尸进程
             except OSError: pass
         return 0.0
 
@@ -267,20 +251,22 @@ async def run_speed_tests(candidates: Sequence[TcpResult], *, timeout: float, pr
         nonlocal completed
         while True:
             candidate = await queue.get()
+            if candidate is None:
+                queue.task_done()  # 必须告诉队列毒药已消耗，防止死锁
+                return
             try:
-                if candidate is None: return
                 speed = await measure_speed_async(candidate.node, timeout, process_buffer)
                 result = SpeedResult(node=candidate.node, latency_ms=candidate.latency_ms, speed_mbps=speed, is_fast=speed > min_speed)
                 results.append(result)
                 if verbose:
                     status = "FAST" if result.is_fast else "NORMAL"
                     print(f"\n[SPEED] {candidate.node.raw} -> {speed} Mbps {status}")
+            except Exception as e:
+                if verbose: print(f"\n[SPEED Error] {candidate.node.raw} -> {e}")
+            finally:
                 completed += 1
                 print(f"\rDownload speed: {completed}/{total}", end='', flush=True)
                 queue.task_done()
-            except:
-                queue.task_done()
-                raise
 
     tasks = [asyncio.create_task(worker()) for _ in range(positive_worker_count(workers, len(candidates)))]
     for candidate in candidates: queue.put_nowait(candidate)
@@ -337,8 +323,6 @@ async def run(config: AppConfig) -> int:
     if config.full_output_file.resolve() == config.best_output_file.resolve():
         print("ERROR: --output and --best-output must point to different files"); return 1
         
-    # 彻底移除 refresh_input_file 调用，将下载文件的控制权 100% 交还给 run.sh 和 LuCI 配置
-    
     try: nodes = load_nodes(config.input_file)
     except FileNotFoundError as exc: print(f"ERROR: {exc}"); return 1
     if not nodes: print(f"ERROR: no valid nodes found in {config.input_file}"); return 1
