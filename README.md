@@ -1,4 +1,4 @@
-## 📦 安装指南
+## 安装指南
 
 > **⚠️ 环境要求**：本项目专为 **ImmortalWrt 25.12 Snapshot** 及以上版本开发，底层已完全适配 Alpine/APK 包管理器。如果你使用的是老旧的 OPKG 环境（如 OpenWrt 23.05 及以下），请勿安装。
 
@@ -26,14 +26,17 @@ rm -rf /tmp/luci-modulecache/
 
 # 5. 删除临时安装包
 rm -f /tmp/luci-app-cfiptools*.apk
+```
+
 安装完成后，刷新浏览器（Ctrl + F5），即可在 LuCI 后台的 服务 (Services) 菜单下看到 CFIP优选。
 
-🧹 卸载与清理指南
+
+## 卸载与清理指南
 在更新插件或排查问题时，可以通过以下脚本进行“无痕卸载”，这将彻底清理插件产生的测速进程、缓存文件、配置数据以及防火墙动态规则：
 
 通过 SSH 登录到路由器，直接复制并执行整段代码：
 
-Bash
+```bash
 # 1. 停止服务并清理 Cron 计划任务
 /etc/init.d/cfiptools stop 2>/dev/null
 /etc/init.d/cron restart 2>/dev/null
@@ -64,5 +67,4 @@ rm -rf /tmp/luci-modulecache/
 rm -rf /tmp/luci-sessions/* 2>/dev/null
 
 echo "卸载与清理完成！路由器已恢复纯净状态。"
-
-你可以直接把它追加到你现在的 `README.MD` 生成器逻辑中，或者手动放到 GitHub 的仓库主页里。祝你的 V8 涡轮测速插件大获成功！
+```
