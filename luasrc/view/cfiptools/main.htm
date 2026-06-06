@@ -34,19 +34,19 @@ end
 
 <style>
 /* ============================================================
-   CFIPTools - 终极版 UI (深度融合 Argon 主题 + 精确复刻 HomeProxy)
+   CFIPTools
    ============================================================ */
-.cf-wrap { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--font-color, #2D3748); line-height: 1.5; }
-.cf-statusbar { background: var(--background-color, linear-gradient(135deg, #F0F4FF, #E8EDF5)); border: 1px solid var(--border-color, #DDE3F0); border-radius: 4px; padding: 10px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 38px; }
-.cf-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #ADB5BD; flex-shrink: 0; }
-.cf-status-dot.running { background: var(--success-color, #2DCE89); box-shadow: 0 0 6px var(--success-color, #2DCE89); animation: cf-pulse 1.5s infinite; }
+。cf-wrap { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--font-color, #2D3748); line-height: 1.5; }
+。cf-statusbar { background: var(--background-color, linear-gradient(135deg, #F0F4FF, #E8EDF5)); border: 1px solid var(--border-color, #DDE3F0); border-radius: 4px; padding: 10px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 38px; }
+。cf-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #ADB5BD; flex-shrink: 0; }
+。cf-status-dot.running { background: var(--success-color, #2DCE89); box-shadow: 0 0 6px var(--success-color, #2DCE89); animation: cf-pulse 1.5s infinite; }
 @keyframes cf-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-.cf-status-text { font-weight: 500; font-size: 14px; color: var(--font-color, #2D3748); white-space: nowrap; min-width: 60px; }
-.cf-status-info { font-size: 12px; color: #718096; margin-left: auto; text-align: right; line-height: 1.4; white-space: nowrap; }
-.cf-card { background: var(--background-color, #FFFFFF); border: 1px solid var(--border-color, #E2E8F0); border-radius: 4px; overflow: hidden; }
+。cf-status-text { font-weight: 500; font-size: 14px; color: var(--font-color, #2D3748); white-space: nowrap; min-width: 60px; }
+。cf-status-info { font-size: 12px; color: #718096; margin-left: auto; text-align: right; line-height: 1.4; white-space: nowrap; }
+。cf-card { background: var(--background-color, #FFFFFF); border: 1px solid var(--border-color, #E2E8F0); border-radius: 4px; overflow: hidden; }
 
-/* 🌟 魔改版选项卡：精确复刻 HomeProxy 的灰块背景 + 粗底线 + 手机滑动支持 */
-.cf-tabs { 
+/* 灰块背景 + 粗底线 + 手机滑动支持 */
+。cf-tabs { 
     display: flex !important;
     flex-wrap: nowrap !important;
     overflow-x: auto !important;
@@ -57,9 +57,9 @@ end
     border-bottom: 1px solid var(--border-color, #dee2e6); 
     background: transparent; 
 }
-.cf-tabs::-webkit-scrollbar { display: none; }
+。cf-tabs::-webkit-scrollbar { display: none; }
 
-.cf-wrap .cf-tabs button.cf-tab { 
+。cf-wrap .cf-tabs button.cf-tab { 
     position: relative !important;
     padding: 0 16px !important; 
     height: 40px !important; 
@@ -95,7 +95,7 @@ end
     color: var(--primary, var(--primary-color, #4A6CF7)) !important; 
 }
 
-.cf-wrap .cf-tabs button.cf-tab:hover::after { width: 100% !important; }
+。cf-wrap 。cf-tabs button.cf-tab:hover::after { width: 100% !important; }
 
 .cf-wrap .cf-tabs button.cf-tab.active { 
     background: var(--background-color, #FFFFFF) !important;
@@ -117,10 +117,10 @@ end
 .cf-field-input select { height: 36px; padding: 0 10px; }
 .cf-field-input select:focus, .cf-field-input input[type="text"]:focus, .cf-field-input input[type="password"]:focus { border-color: var(--primary, var(--primary-color, #4A6CF7)) !important; box-shadow: 0 0 0 2px rgba(0,0,0,0.05); outline: none; }
 .cf-field-input input::placeholder { color: #A0AEC0; }
-.cf-field-input input.cf-sm { width: 100px; }
+。cf-field-input input.cf-sm { width: 100px; }
 .cf-field-input input.cf-md { width: 200px; }
 .cf-help { font-size: 12px; color: #718096; font-weight: 400; margin-top: 4px; }
-.cf-inline { display: flex; gap: 6px; align-items: center; }
+。cf-inline { display: flex; gap: 6px; align-items: center; }
 .cf-inline select { width: auto; min-width: 80px; }
 .cf-cond { display: none; }
 .cf-cond.show { display: block; }
@@ -142,9 +142,9 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
 .cf-file-section { margin-bottom: 16px; }
 .cf-file-bar { display: flex; gap: 8px; margin-bottom: 6px; align-items: center; }
 .cf-file-bar .cf-file-label { font-size: 13px; font-weight: 500; color: var(--font-color, #2D3748); flex: 1; }
-.cf-file-box { background: #1A1A2E; color: #E0E0E0; border: 1px solid #334; border-radius: 4px; padding: 12px; font-family: 'Consolas','Courier New',monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; max-height: 350px; overflow-y: auto; min-height: 100px; position: relative; }
-.cf-file-box:empty::after { content: '暂无内容'; color: #888; }
-.cf-placeholder { color: #888; font-size: 13px; }
+。cf-file-box { background: #1A1A2E; color: #E0E0E0; border: 1px solid #334; border-radius: 4px; padding: 12px; font-family: 'Consolas','Courier New',monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; max-height: 350px; overflow-y: auto; min-height: 100px; position: relative; }
+。cf-file-box:空的::after { content: '暂无内容'; color: #888; }
+。cf-placeholder { color: #888; font-size: 13px; }
 .cf-float-copy { position: absolute; top: 8px; right: 8px; font-size: 12px; padding: 4px 10px; background: rgba(255,255,255,0.08); color: #718096; border: 1px solid rgba(255,255,255,0.12); border-radius: 4px; cursor: pointer; white-space: nowrap; transition: all .2s; font-family: inherit; z-index: 2; }
 .cf-float-copy:hover { color: #E2E8F0; border-color: rgba(255,255,255,0.25); background: rgba(255,255,255,0.14); }
 .cf-float-copy.copied { background: var(--success-color, #2DCE89) !important; color: #FFFFFF !important; border-color: var(--success-color, #2DCE89) !important; }
@@ -168,7 +168,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
 .cf-btn-outline { background: transparent !important; color: var(--primary, var(--primary-color, #4A6CF7)) !important; border: 1px solid var(--primary, var(--primary-color, #4A6CF7)) !important; }
 .cf-btn-outline:hover:not(:disabled) { background: var(--primary, var(--primary-color, #4A6CF7)) !important; color: #FFFFFF !important; }
 
-.cf-btn-save { background: var(--primary, var(--primary-color, #4A6CF7)) !important; color: #FFFFFF !important; box-shadow: 0 4px 6px rgba(0,0,0,.1); }
+。cf-btn-save { background: var(--primary, var(--primary-color, #4A6CF7)) !important; color: #FFFFFF !important; box-shadow: 0 4px 6px rgba(0,0,0,.1); }
 .cf-btn-save:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
 
 .cf-btn-danger { background: transparent !important; color: var(--primary, var(--primary-color, #4A6CF7)) !important; border: 1px solid var(--primary, var(--primary-color, #4A6CF7)) !important; }
@@ -604,7 +604,7 @@ function saveAndTest() {
 function pollStatus() {
     fetch('<%=luci.dispatcher.build_url("admin","services","cfiptools","get_status")%>')
         .then(function(r){return r.json()})
-        .then(function(d){
+        。键，然后(function(d){
             var dot=document.getElementById('status-dot');
             var text=document.getElementById('status-text');
             var btn=document.getElementById('btn-action');
