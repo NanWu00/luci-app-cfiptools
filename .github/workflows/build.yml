@@ -24,11 +24,12 @@ jobs:
           # 确保安装了 zstd，否则无法解压新版 ImmortalWrt SDK
           sudo apt-get install -y build-essential libncurses5-dev gawk git libssl-dev gettext zlib1g-dev swig unzip time rsync python3 wget curl zstd
 
-      - name: 动态获取 ImmortalWrt 24.10 最新 SDK
+      - name: 动态获取 ImmortalWrt Snapshot 最新 SDK
         run: |
-          BASE_URL="https://downloads.immortalwrt.org/releases/24.10.0/targets/x86/64/"
+          # 【修改这里】：换回快照版源，这才是纯正的 APK 生产线！
+          BASE_URL="https://downloads.immortalwrt.org/snapshots/targets/x86/64/"
           
-          # 智能解析 sha256sums 获取最新文件名，彻底告别 404
+          # 智能解析 sha256sums 获取最新文件名
           SDK_FILE=$(curl -sL "${BASE_URL}sha256sums" | grep 'immortalwrt-sdk' | awk '{print $2}' | sed 's/\*//g' | head -n 1)
           
           if [ -z "$SDK_FILE" ]; then
@@ -39,7 +40,6 @@ jobs:
           echo "==== 成功锁定官方 SDK: $SDK_FILE ===="
           wget "${BASE_URL}${SDK_FILE}"
           
-          # 兼容解压 .tar.xz 和 .tar.zst
           tar -xf "$SDK_FILE"
           rm -f "$SDK_FILE"
           mv immortalwrt-sdk-* sdk
