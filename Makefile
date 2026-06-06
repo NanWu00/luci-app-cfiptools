@@ -8,7 +8,7 @@ LUCI_TITLE:=LuCI Support for CFIPTools
 
 LUCI_PKGARCH:=all
 
-LUCI_DEPENDS:=+luci-base +luci-compat +curl +python3 +python3-light +python3-urllib +python3-asyncio
+LUCI_DEPENDS:=+luci-base +luci-compat +curl +python3
 
 include $(TOPDIR)/feeds/luci/luci.mk
 
