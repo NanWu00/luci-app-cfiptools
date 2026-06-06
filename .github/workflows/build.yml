@@ -1,8 +1,8 @@
 name: 自动编译原生 APK 安装包
 
-on:
+于:
   push:
-    branches: [ main ]
+    分支: [ main ]
   workflow_dispatch:
 
 env:
@@ -60,11 +60,16 @@ jobs:
         run: |
           cd sdk
           
-          # 【强制选中】：用刀架在 SDK 脖子上，逼它必须编译我们的插件！
+          # 1. 强制选中插件
           echo "CONFIG_PACKAGE_luci-app-cfiptools=m" >> .config
           
+          # 2. 【终极奥义】：强制 SDK 将打包格式从传统的 .ipk 切换为最新的 .apk！
+          echo "CONFIG_USE_APK=y" >> .config
+          
           make defconfig
-          make package/luci-app-cfiptools/compile -j$(nproc) || make package/luci-app-cfiptools/compile -j1 V=s
+          
+          # 3. 使用 USE_APK=1 作为环境变量双重保险，火力全开！
+          make package/luci-app-cfiptools/compile USE_APK=1 -j$(nproc) || make package/luci-app-cfiptools/compile USE_APK=1 -j1 V=s
 
       - name: 提取并上传终极安装包
         uses: actions/upload-artifact@v4
