@@ -59,14 +59,19 @@ jobs:
       - name: 生成配置并开始狂暴多核编译
         run: |
           cd sdk
-          make defconfig
           
-          # V8 引擎多核全开！如果出错再自动降级回单核查日志
+          # 【强制选中】：用刀架在 SDK 脖子上，逼它必须编译我们的插件！
+          echo "CONFIG_PACKAGE_luci-app-cfiptools=m" >> .config
+          
+          make defconfig
           make package/luci-app-cfiptools/compile -j$(nproc) || make package/luci-app-cfiptools/compile -j1 V=s
 
-      - name: 提取并上传终极 APK
+      - name: 提取并上传终极安装包
         uses: actions/upload-artifact@v4
         with:
-          name: luci-app-cfiptools-apk
-          path: sdk/bin/packages/**/*.apk
+          name: luci-app-cfiptools-package
+          # 【天罗地网】：不管是 apk 还是 ipk，只要编译出来统统抓走
+          path: |
+            sdk/bin/packages/**/*.apk
+            sdk/bin/packages/**/*.ipk
           retention-days: 7
