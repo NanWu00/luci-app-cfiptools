@@ -1,8 +1,8 @@
 name: 自动编译原生 APK 安装包
 
-on:
+于:
   push:
-    branches: [ main ]
+    分支: [ main ]
   workflow_dispatch:
 
 # 消除刚才那个烦人的 Node.js 黄色警告
@@ -62,7 +62,7 @@ jobs:
         run: |
           cd sdk
           make defconfig
-          make package/luci-app-cfiptools/compile V=s
+          make package/luci-app-cfiptools/compile -j$(nproc) || make package/luci-app-cfiptools/compile -j1 V=s
 
       - name: 提取并上传终极 APK
         uses: actions/upload-artifact@v4
