@@ -57,7 +57,7 @@ function action_start_test()
             return
         end
     end
-    luci.sys.exec("/usr/share/cfiptools/run.sh > /dev/null 2>&1 &")
+    luci.sys.exec("/usr/share/cfiptools/run.sh </dev/null >/dev/null 2>&1 &")
     luci.http.prepare_content("application/json")
     luci.http.write_json({status = "started", message = "Test started"})
 end
@@ -75,7 +75,7 @@ function action_stop_test()
         luci.sys.exec("sleep 1")
         luci.sys.exec("kill -KILL " .. pid .. " 2>/dev/null")
     end
-    luci.sys.exec("pkill -f 'update.py' 2>/dev/null")
+    luci.sys.exec("pkill -f '/usr/share/cfiptools/update.py' 2>/dev/null")
     luci.sys.exec("pkill -f 'curl.*speed.cloudflare.com' 2>/dev/null")
     luci.sys.exec("rm -f " .. pid_file)
     luci.sys.exec(": > /var/run/cfiptools.status 2>/dev/null")

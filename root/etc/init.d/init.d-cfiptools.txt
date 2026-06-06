@@ -1,0 +1,41 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=10
+
+. /lib/functions.sh
+
+validate_cron() {
+    local enabled cron_schedule
+    config_load cfiptools
+    config_get_bool enabled config enabled 0
+    config_get cron_schedule config cron_schedule "0 4 * * *"
+
+    # 清理旧条目
+    sed -i '/cfiptools/d' /etc/crontabs/root 2>/dev/null || true
+
+    if [ "$enabled" -eq 1 ] && [ -n "$cron_schedule" ]; then
+        # 简单校验 cron 格式
+        if echo "$cron_schedule" | grep -qE '^[0-9*/,-]+ [0-9*/,-]+ [0-9*/,-]+ [0-9*/,-]+ [0-9*/,-]+$'; then
+            echo "$cron_schedule /usr/share/cfiptools/run.sh" >> /etc/crontabs/root
+        else
+            logger -t cfiptools "Invalid cron schedule: $cron_schedule, using default"
+            echo "0 4 * * * /usr/share/cfiptools/run.sh" >> /etc/crontabs/root
+        fi
+    fi
+    /etc/init.d/cron restart
+}
+
+start() {
+    validate_cron
+}
+
+stop() {
+    sed -i '/cfiptools/d' /etc/crontabs/root 2>/dev/null || true
+    /etc/init.d/cron restart
+}
+
+restart() {
+    stop
+    start
+}
