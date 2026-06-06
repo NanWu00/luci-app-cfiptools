@@ -1,0 +1,76 @@
+name: 自动编译原生 APK 安装包
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    name: 编译 luci-app-cfiptools
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 配置编译环境
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev gawk git libssl-dev gettext zlib1g-dev swig unzip time rsync python3 wget curl zstd
+
+      - name: 动态获取 ImmortalWrt Snapshot 最新 SDK
+        run: |
+          BASE_URL="https://downloads.immortalwrt.org/snapshots/targets/x86/64/"
+          SDK_FILE=$(curl -sL "${BASE_URL}sha256sums" | grep 'immortalwrt-sdk' | awk '{print $2}' | sed 's/\*//g' | head -n 1)
+          
+          if [ -z "$SDK_FILE" ]; then
+            echo "==== [致命错误] 未能在官方源中找到 SDK ===="
+            exit 1
+          fi
+          echo "==== 成功锁定官方 SDK: $SDK_FILE ===="
+          
+          wget "${BASE_URL}${SDK_FILE}"
+          tar -xf "$SDK_FILE"
+          rm -f "$SDK_FILE"
+          mv immortalwrt-sdk-* sdk
+
+      - name: 核心步骤：更新 Feeds 基础组件树
+        run: |
+          cd sdk
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 智能收集插件源码并移入车间
+        run: |
+          mkdir -p sdk/package/luci-app-cfiptools
+          
+          # 暴力恢复执行权限，对抗 Windows 权限丢失
+          find . -type f -name "*.sh" -exec chmod +x {} +
+          find . -type f -name "*.py" -exec chmod +x {} +
+          find . -type f -name "cfiptools" -exec chmod +x {} +
+          
+          rsync -a --exclude='sdk' --exclude='.git' --exclude='.github' ./ sdk/package/luci-app-cfiptools/
+
+      - name: 生成配置并开始狂暴多核编译
+        run: |
+          cd sdk
+          
+          # 强制选中插件并强制切换为 APK 格式
+          echo "CONFIG_PACKAGE_luci-app-cfiptools=m" >> .config
+          echo "CONFIG_USE_APK=y" >> .config
+          
+          make defconfig
+          make package/luci-app-cfiptools/compile USE_APK=1 -j$(nproc) || make package/luci-app-cfiptools/compile USE_APK=1 -j1 V=s
+
+      - name: 提取并上传终极安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: luci-app-cfiptools-package
+          path: |
+            sdk/bin/packages/**/*.apk
+            sdk/bin/packages/**/*.ipk
+          retention-days: 7
