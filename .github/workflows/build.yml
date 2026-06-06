@@ -20,17 +20,29 @@ jobs:
           sudo apt update
           sudo apt install -y build-essential libncurses5-dev gawk git libssl-dev gettext zlib1g-dev swig unzip time rsync python3 wget
 
-      - name: 下载并解压 ImmortalWrt 24.10 SDK
+      - name: 获取 ImmortalWrt 24.10 SDK
         run: |
-          wget https://downloads.immortalwrt.org/releases/24.10.0/targets/x86/64/immortalwrt-sdk-24.10.0-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.xz
-          tar -xf immortalwrt-sdk-24.10.0-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.xz
-          mv immortalwrt-sdk-24.10.0-x86-64_gcc-13.3.0_musl.Linux-x86_64 sdk
-
-      - name: 更新 Feeds 并安装 LuCI 依赖
-        run: |
-          cd sdk
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a -p luci
+          BASE_URL="https://downloads.immortalwrt.org/releases/24.10.0/targets/x86/64/"
+          
+          # 1. 下载校验文件并动态提取 SDK 文件名
+          SDK_FILE=$(curl -sL "${BASE_URL}sha256sums" | grep 'immortalwrt-sdk' | awk '{print $2}' | sed 's/^*//g' | head -n 1)
+          
+          if [ -z "$SDK_FILE" ]; then
+            echo "错误: 未能在官方源中找到 SDK 文件"
+            exit 1
+          fi
+          
+          echo "锁定最新 SDK: $SDK_FILE"
+          
+          # 2. 下载确切的文件
+          wget "${BASE_URL}${SDK_FILE}"
+          
+          # 3. 自动识别并解压 (兼容 .tar.xz 与 .tar.zst)
+          tar -xf "$SDK_FILE"
+          
+          # 4. 清理残留压缩包并重命名目录
+          rm -f "$SDK_FILE"
+          mv immortalwrt-sdk-* sdk
 
       - name: 将插件源码移入 SDK 车间
         run: |
