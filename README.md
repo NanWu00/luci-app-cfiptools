@@ -2,7 +2,9 @@
 
 > **⚠️ 环境要求**：本项目专为 **ImmortalWrt 25.12 Snapshot** 及以上版本开发，底层已完全适配 Alpine/APK 包管理器。如果你使用的是老旧的 OPKG 环境（如 OpenWrt 23.05 及以下），请勿安装。
 
-### 1. 上传安装包
+
+### 上传安装包
+
 从 [Releases](#) 下载最新编译的 `luci-app-cfiptools_x.x-x_all.apk` 安装包。
 使用 WinSCP、MobaXterm 或其他 SFTP 工具，将 `.apk` 文件上传至路由器的 `/tmp/` 目录中。
 
