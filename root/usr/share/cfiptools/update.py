@@ -336,7 +336,9 @@ async def supplement_my_results(best_results: Sequence[SpeedResult], tcp_results
 async def run(config: AppConfig) -> int:
     if config.full_output_file.resolve() == config.best_output_file.resolve():
         print("ERROR: --output and --best-output must point to different files"); return 1
-    refresh_input_file(config.input_url, config.input_file, DEFAULT_INPUT_DOWNLOAD_TIMEOUT)
+        
+    # 彻底移除 refresh_input_file 调用，将下载文件的控制权 100% 交还给 run.sh 和 LuCI 配置
+    
     try: nodes = load_nodes(config.input_file)
     except FileNotFoundError as exc: print(f"ERROR: {exc}"); return 1
     if not nodes: print(f"ERROR: no valid nodes found in {config.input_file}"); return 1
