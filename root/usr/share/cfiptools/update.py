@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argparse
 import asyncio
 import heapq
@@ -11,7 +12,21 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
-from tqdm import tqdm
+
+# tqdm 依赖已移除，改用简单进度输出（可选）
+IS_TTY = sys.stdout.isatty()
+
+def simple_progress(iterable, desc="", total=None):
+    """简单的进度替代 tqdm"""
+    if total is None:
+        total = len(iterable) if hasattr(iterable, '__len__') else 0
+    print(f"{desc}: 0/{total}", end='')
+    for i, item in enumerate(iterable, 1):
+        yield item
+        if IS_TTY:
+            print(f"\r{desc}: {i}/{total}", end='')
+    if IS_TTY:
+        print()  # 换行
 
 DEFAULT_INPUT_FILE = Path("ips.txt")
 DEFAULT_INPUT_URL = "https://zip.cm.edu.kg/all.txt"
@@ -35,8 +50,6 @@ MY_REGION = "KG2"
 MY_SUPPLEMENT_TRIGGER_COUNT = 2
 MY_SUPPLEMENT_LIMIT = 2
 
-IS_TTY = sys.stdout.isatty()
-
 REGION_EMOJIS = {
     "HK": "🇭🇰", "TW": "🇹🇼", "SG": "🇸🇬", "JP": "🇯🇵",
     "KR": "🇰🇷", "US": "🇺🇸", "GB": "🇬🇧", "UK": "🇬🇧",
@@ -50,7 +63,7 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 def parse_bool(value: str) -> bool:
-    text = value.strip().lower()
+    text = str(value).strip().lower()
     if text in {"1", "true", "yes", "on"}: return True
     if text in {"0", "false", "no", "off"}: return False
     raise ValueError(f"invalid boolean value: {value}")
@@ -112,9 +125,9 @@ def parse_args() -> AppConfig:
     parser.add_argument("--min-speed", type=float, default=DEFAULT_MIN_SPEED_MBPS)
     parser.add_argument("--top", type=int, default=DEFAULT_TOP_PER_REGION)
     parser.add_argument("--verbose", action="store_true")
-    parser.add_argument("--NO", nargs="?", const="true", default=os.environ.get("NO", "false"))
-    parser.add_argument("--show-latency", nargs="?", const="true", default=os.environ.get("SHOW_LATENCY", "true"))
-    parser.add_argument("--show-mbps", nargs="?", const="true", default=os.environ.get("SHOW_MBPS", "false"))
+    parser.add_argument("--numbered", dest="numbered_regions", action="store_true", default=False)
+    parser.add_argument("--show-latency", type=str, default="1")
+    parser.add_argument("--show-mbps", type=str, default="0")
     parser.add_argument("--fast-label", type=str, default=DEFAULT_FAST_LABEL)
     parser.add_argument("--input-url", type=str, default=DEFAULT_INPUT_URL)
     args = parser.parse_args()
@@ -124,7 +137,7 @@ def parse_args() -> AppConfig:
         tcp_timeout=args.tcp_timeout, tcp_workers=args.tcp_workers, speed_timeout=args.speed_timeout,
         speed_process_buffer=args.speed_process_buffer, speed_workers=args.speed_workers,
         min_speed_mbps=args.min_speed, top_per_region=args.top, verbose=args.verbose,
-        numbered_regions=parse_bool(args.NO), show_latency=parse_bool(args.show_latency),
+        numbered_regions=args.numbered_regions, show_latency=parse_bool(args.show_latency),
         show_mbps=parse_bool(args.show_mbps), fast_label=args.fast_label, input_url=args.input_url
     )
 
@@ -185,9 +198,13 @@ async def tcping(node: Node, timeout: float) -> float | None:
 
 async def run_tcp_tests(nodes: Sequence[Node], *, timeout: float, workers: int, verbose: bool) -> list[TcpResult]:
     queue, results = asyncio.Queue(), []
-    progress = tqdm(total=len(nodes), desc="TCP latency", unit="ip", disable=not IS_TTY)
+    # 使用简单进度替代 tqdm
+    total = len(nodes)
+    print(f"TCP latency: 0/{total}", end='')
+    completed = 0
 
     async def worker():
+        nonlocal completed
         while True:
             node = await queue.get()
             try:
@@ -196,16 +213,21 @@ async def run_tcp_tests(nodes: Sequence[Node], *, timeout: float, workers: int, 
                 if latency is not None:
                     results.append(TcpResult(node=node, latency_ms=latency))
                     if verbose:
-                        (tqdm.write if IS_TTY else print)(f"[LAT] {node.raw} -> {latency} ms")
-                progress.update(1)
-            finally: queue.task_done()
+                        print(f"\n[LAT] {node.raw} -> {latency} ms")
+                completed += 1
+                if IS_TTY:
+                    print(f"\rTCP latency: {completed}/{total}", end='')
+                queue.task_done()
+            except:
+                queue.task_done()
+                raise
 
     tasks = [asyncio.create_task(worker()) for _ in range(positive_worker_count(workers, len(nodes)))]
     for node in nodes: queue.put_nowait(node)
     for _ in tasks: queue.put_nowait(None)
     await queue.join()
     await asyncio.gather(*tasks)
-    progress.close()
+    if IS_TTY: print()  # 换行
     return results
 
 def select_candidates(results: Iterable[TcpResult], top_per_region: int) -> list[TcpResult]:
@@ -254,9 +276,12 @@ async def measure_speed_async(node: Node, timeout: float, process_buffer: float)
 
 async def run_speed_tests(candidates: Sequence[TcpResult], *, timeout: float, process_buffer: float, workers: int, min_speed: float, verbose: bool) -> list[SpeedResult]:
     queue, results = asyncio.Queue(), []
-    progress = tqdm(total=len(candidates), desc="Download speed", unit="ip", disable=not IS_TTY)
+    total = len(candidates)
+    print(f"Download speed: 0/{total}", end='')
+    completed = 0
 
     async def worker():
+        nonlocal completed
         while True:
             candidate = await queue.get()
             try:
@@ -266,16 +291,21 @@ async def run_speed_tests(candidates: Sequence[TcpResult], *, timeout: float, pr
                 results.append(result)
                 if verbose:
                     status = "FAST" if result.is_fast else "NORMAL"
-                    (tqdm.write if IS_TTY else print)(f"[SPEED] {candidate.node.raw} -> {speed} Mbps {status}")
-                progress.update(1)
-            finally: queue.task_done()
+                    print(f"\n[SPEED] {candidate.node.raw} -> {speed} Mbps {status}")
+                completed += 1
+                if IS_TTY:
+                    print(f"\rDownload speed: {completed}/{total}", end='')
+                queue.task_done()
+            except:
+                queue.task_done()
+                raise
 
     tasks = [asyncio.create_task(worker()) for _ in range(positive_worker_count(workers, len(candidates)))]
     for candidate in candidates: queue.put_nowait(candidate)
     for _ in tasks: queue.put_nowait(None)
     await queue.join()
     await asyncio.gather(*tasks)
-    progress.close()
+    if IS_TTY: print()
     results.sort(key=lambda item: (item.node.region, item.latency_ms, -item.speed_mbps))
     return results
 

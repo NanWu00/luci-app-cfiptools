@@ -1,5 +1,5 @@
 #!/bin/sh
-# cfip-tools OpenWRT wrapper script
+# cfip-tools OpenWRT wrapper script - fixed version
 set -e
 
 CFG="/etc/config/cfiptools"
@@ -60,18 +60,26 @@ apply_proxy_bypass() {
     export http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" no_proxy="*" NO_PROXY="*"
     case "$method" in
         iptables)
-            iptables -t nat -I OUTPUT 1 -m owner --uid-owner root -j RETURN -m comment --comment "cfiptools_bypass" 2>/dev/null || true
-            iptables -t mangle -I OUTPUT 1 -m owner --uid-owner root -j RETURN -m comment --comment "cfiptools_bypass" 2>/dev/null || true
-            log "Added iptables bypass rule" ;;
+            if command -v iptables >/dev/null 2>&1; then
+                iptables -t nat -I OUTPUT 1 -m owner --uid-owner root -j RETURN -m comment --comment "cfiptools_bypass" 2>/dev/null || true
+                iptables -t mangle -I OUTPUT 1 -m owner --uid-owner root -j RETURN -m comment --comment "cfiptools_bypass" 2>/dev/null || true
+                log "Added iptables bypass rule"
+            else
+                log "iptables not found, skip"
+            fi ;;
         nftables)
-            nft list ruleset 2>/dev/null | awk '
-                /table (inet|ip|ip6) / { fam=$2; tbl=$3; gsub(/\"/, "", tbl) }
-                /chain/ { chn=$2; gsub(/\"/, "", chn) }
-                /hook output/ { print fam, tbl, chn }
-            ' | while read -r fam tbl chn; do
-                nft insert rule "$fam" "$tbl" "$chn" meta skuid root counter return comment \"cfiptools_bypass\" 2>/dev/null || true
-            done
-            log "Added dynamic nftables bypass rules for all output chains" ;;
+            if command -v nft >/dev/null 2>&1; then
+                nft list ruleset 2>/dev/null | awk '
+                    /table (inet|ip|ip6) / { fam=$2; tbl=$3; gsub(/\"/, "", tbl) }
+                    /chain/ { chn=$2; gsub(/\"/, "", chn) }
+                    /hook output/ { print fam, tbl, chn }
+                ' | while read -r fam tbl chn; do
+                    nft insert rule "$fam" "$tbl" "$chn" meta skuid root counter return comment \"cfiptools_bypass\" 2>/dev/null || true
+                done
+                log "Added dynamic nftables bypass rules"
+            else
+                log "nftables not found, skip"
+            fi ;;
     esac
 }
 
@@ -83,14 +91,16 @@ cleanup_proxy_bypass() {
             while iptables -t mangle -D OUTPUT -m owner --uid-owner root -j RETURN -m comment --comment "cfiptools_bypass" 2>/dev/null; do :; done
             log "Removed iptables bypass rule" ;;
         nftables)
-            nft -a list ruleset 2>/dev/null | awk '
-                /table (inet|ip|ip6) / { fam=$2; tbl=$3; gsub(/\"/, "", tbl) }
-                /chain/ { chn=$2; gsub(/\"/, "", chn) }
-                /cfiptools_bypass/ { print fam, tbl, chn, $NF }
-            ' | while read -r fam tbl chn hnd; do
-                nft delete rule "$fam" "$tbl" "$chn" handle "$hnd" 2>/dev/null || true
-            done
-            log "Removed dynamic nftables bypass rules" ;;
+            if command -v nft >/dev/null 2>&1; then
+                nft -a list ruleset 2>/dev/null | awk '
+                    /table (inet|ip|ip6) / { fam=$2; tbl=$3; gsub(/\"/, "", tbl) }
+                    /chain/ { chn=$2; gsub(/\"/, "", chn) }
+                    /cfiptools_bypass/ { print fam, tbl, chn, $NF }
+                ' | while read -r fam tbl chn hnd; do
+                    nft delete rule "$fam" "$tbl" "$chn" handle "$hnd" 2>/dev/null || true
+                done
+                log "Removed dynamic nftables bypass rules"
+            fi ;;
     esac
 }
 
@@ -108,6 +118,12 @@ run_post_command() {
     fi
 }
 
+# 安全地执行 Python 脚本，参数使用引号传递
+run_python() {
+    cd "$DATA_DIR"
+    python3 "$DATA_DIR/update.py" "$@"
+}
+
 run_test() {
     if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
         log "Already running (PID $(cat "$PID_FILE"))"
@@ -120,8 +136,6 @@ run_test() {
     run_pre_command
     apply_proxy_bypass
 
-    cd "$DATA_DIR"
-
     INPUT_FILE="${CFG_input_file}"
     FULL_OUTPUT="${CFG_full_output_file}"
     BEST_OUTPUT="${CFG_best_output_file}"
@@ -129,15 +143,30 @@ run_test() {
 
     log "Paths: input=$INPUT_FILE | full=$FULL_OUTPUT | best=$BEST_OUTPUT | readme=$README_FILE"
 
+    # 下载 IP 列表
     if [ "${CFG_download_input:-1}" = "1" ] && [ -n "${CFG_input_url:-}" ]; then
         set_status "下载IP列表"
         log "Downloading IP list from ${CFG_input_url}"
         DOWNLOAD_TO="${CFG_download_timeout:-30}"
-        curl -sL --connect-timeout "$DOWNLOAD_TO" --max-time "$((DOWNLOAD_TO * 2))" \
+        mkdir -p "$(dirname "$INPUT_FILE")"
+        if curl -sL --connect-timeout "$DOWNLOAD_TO" --max-time "$((DOWNLOAD_TO * 2))" \
             -H "User-Agent: cf-ip-updater/1.0" \
-            -o "$INPUT_FILE" "${CFG_input_url}" >> "$LOG_FILE" 2>&1 || log "Download failed, using existing file"
+            -o "$INPUT_FILE" "${CFG_input_url}" >> "$LOG_FILE" 2>&1; then
+            log "Download succeeded"
+        else
+            log "Download failed, but will try to use existing file"
+        fi
     fi
 
+    # 检查输入文件是否存在
+    if [ ! -f "$INPUT_FILE" ]; then
+        set_status "失败：无输入文件"
+        log "ERROR: Input file $INPUT_FILE not found and download failed"
+        rm -f "$PID_FILE"
+        exit 1
+    fi
+
+    # 限制节点数量
     MAX_NODES="${CFG_max_nodes:-0}"
     if [ "$MAX_NODES" -gt 0 ] 2>/dev/null; then
         log "Limiting to first $MAX_NODES nodes"
@@ -149,36 +178,48 @@ run_test() {
     TCP_TIMEOUT_MS="${CFG_tcp_timeout_ms:-1500}"
     TCP_TIMEOUT_SEC=$(awk "BEGIN {printf \"%.3f\", $TCP_TIMEOUT_MS / 1000}")
 
-    ARGS="--input \"$INPUT_FILE\" --output \"$FULL_OUTPUT\" --best-output \"$BEST_OUTPUT\""
-    ARGS="$ARGS --tcp-timeout $TCP_TIMEOUT_SEC --tcp-workers ${CFG_tcp_workers:-200}"
-    ARGS="$ARGS --speed-timeout ${CFG_speed_timeout_sec:-6.0} --speed-workers ${CFG_speed_workers:-5}"
-    ARGS="$ARGS --min-speed ${CFG_min_speed_mbps:-16} --top ${CFG_top_per_region:-10}"
-    ARGS="$ARGS --show-latency ${CFG_show_latency:-true} --show-mbps ${CFG_show_bandwidth:-false}"
+    # 构建参数数组
+    set --
+    set -- "--input" "$INPUT_FILE"
+    set -- "$@" "--output" "$FULL_OUTPUT"
+    set -- "$@" "--best-output" "$BEST_OUTPUT"
+    set -- "$@" "--tcp-timeout" "$TCP_TIMEOUT_SEC"
+    set -- "$@" "--tcp-workers" "${CFG_tcp_workers:-200}"
+    set -- "$@" "--speed-timeout" "${CFG_speed_timeout_sec:-6.0}"
+    set -- "$@" "--speed-workers" "${CFG_speed_workers:-5}"
+    set -- "$@" "--min-speed" "${CFG_min_speed_mbps:-16}"
+    set -- "$@" "--top" "${CFG_top_per_region:-10}"
+    set -- "$@" "--show-latency" "${CFG_show_latency:-1}"
+    set -- "$@" "--show-mbps" "${CFG_show_bandwidth:-1}"
 
-    if [ "${CFG_numbered_regions:-0}" = "1" ]; then ARGS="$ARGS --NO"; fi
-    if [ "${CFG_verbose:-0}" = "1" ]; then ARGS="$ARGS --verbose"; fi
-    ARGS="$ARGS --fast-label \"${CFG_fast_label:-自选高速}\""
+    if [ "${CFG_numbered_regions:-0}" = "1" ]; then set -- "$@" "--numbered"; fi
+    if [ "${CFG_verbose:-0}" = "1" ]; then set -- "$@" "--verbose"; fi
+    set -- "$@" "--fast-label" "${CFG_fast_label:-自选高速}"
 
     set_status "TCP延迟测速"
     log "Starting speed test..."
-    eval "python3 \"$DATA_DIR/update.py\" $ARGS" >> "$LOG_FILE" 2>&1
-    local exit_code=$?
-
-    cleanup_proxy_bypass
-
-    if [ $exit_code -ne 0 ]; then
+    if run_python "$@"; then
+        log "update.py finished successfully"
+    else
+        local exit_code=$?
         set_status "失败"
         log "update.py failed with exit code $exit_code"
+        cleanup_proxy_bypass
         run_post_command
         rm -f "$PID_FILE"
         exit $exit_code
     fi
 
+    cleanup_proxy_bypass
+
     if [ "${CFG_update_readme:-0}" = "1" ]; then
         set_status "生成README"
         log "Generating README -> $README_FILE"
-        # ⚠️ 修复点：传递了 -f 参数
-        python3 "$DATA_DIR/update_md.py" -f "$README_FILE" >> "$LOG_FILE" 2>&1 || log "README generation failed (ignored)"
+        if [ -f "$DATA_DIR/update_md.py" ]; then
+            python3 "$DATA_DIR/update_md.py" -f "$README_FILE" >> "$LOG_FILE" 2>&1 || log "README generation failed (ignored)"
+        else
+            log "update_md.py not found, skip README generation"
+        fi
     fi
 
     if [ "${CFG_github_upload_enabled:-0}" = "1" ]; then
@@ -192,9 +233,13 @@ run_test() {
         export GIT_HTTP_PROXY="${CFG_git_http_proxy:-}"
         export GIT_HTTPS_PROXY="${CFG_git_https_proxy:-}"
 
-        sh "$DATA_DIR/push_results.sh" >> "$LOG_FILE" 2>&1
-        local push_exit=$?
-        if [ $push_exit -eq 0 ]; then log "GitHub upload completed"; else log "GitHub upload failed (exit $push_exit)"; fi
+        if [ -f "$DATA_DIR/push_results.sh" ]; then
+            sh "$DATA_DIR/push_results.sh" >> "$LOG_FILE" 2>&1
+            local push_exit=$?
+            if [ $push_exit -eq 0 ]; then log "GitHub upload completed"; else log "GitHub upload failed (exit $push_exit)"; fi
+        else
+            log "push_results.sh not found, skip GitHub upload"
+        fi
     fi
 
     local ts=$(date '+%Y-%m-%d %H:%M:%S')
@@ -204,7 +249,6 @@ run_test() {
     set_status "完成"
     log "All tasks completed"
 
-    cleanup_proxy_bypass
     run_post_command
     rm -f "$PID_FILE"
 }

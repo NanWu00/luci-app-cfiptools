@@ -1,8 +1,8 @@
 module("luci.controller.cfiptools", package.seeall)
 
 function index()
-    if not nixio.fs.access("/etc/config/cfiptools") then return end
-
+    -- 不再检查配置文件是否存在，让菜单始终显示
+    -- 如果配置不存在，首次访问时会通过重置创建默认配置
     entry({"admin", "services", "cfiptools"}, alias("admin", "services", "cfiptools", "main"), _("CFIP优选"), 90)
     entry({"admin", "services", "cfiptools", "main"}, call("action_main"), _("CFIP优选"), 10)
     entry({"admin", "services", "cfiptools", "save"}, call("action_save"))
@@ -58,6 +58,7 @@ function action_start_test()
             return
         end
     end
+    -- 使用 run.sh 启动，并记录 PID（run.sh 自身会写入 PID）
     luci.sys.exec("/usr/share/cfiptools/run.sh > /dev/null 2>&1 &")
     luci.http.prepare_content("application/json")
     luci.http.write_json({status = "started", message = "Test started"})
@@ -70,8 +71,19 @@ function action_stop_test()
         luci.http.write_json({status = "not_running", message = "No test is running"})
         return
     end
-    luci.sys.exec("killall -9 cfiptools update.py CloudflareST 2>/dev/null")
+    -- 正确终止进程树
+    local pid = tonumber(luci.sys.exec("cat " .. pid_file))
+    if pid then
+        -- 先发 TERM，再发 KILL
+        luci.sys.exec("kill -TERM " .. pid .. " 2>/dev/null")
+        luci.sys.exec("sleep 1")
+        luci.sys.exec("kill -KILL " .. pid .. " 2>/dev/null")
+    end
+    -- 清理可能残留的 python 和 curl 进程
+    luci.sys.exec("pkill -f 'update.py' 2>/dev/null")
+    luci.sys.exec("pkill -f 'curl.*speed.cloudflare.com' 2>/dev/null")
     luci.sys.exec("rm -f " .. pid_file)
+    luci.sys.exec(": > /var/run/cfiptools.status 2>/dev/null")
     luci.http.prepare_content("application/json")
     luci.http.write_json({status = "stopped", message = "Test stopped"})
 end
@@ -130,7 +142,7 @@ function action_clear_log()
 end
 
 function action_reset()
-    luci.sys.exec("killall -9 cfiptools update.py CloudflareST 2>/dev/null")
+    luci.sys.exec("pkill -f 'update.py' 2>/dev/null")
     luci.sys.exec("rm -f /var/run/cfiptools.pid")
     luci.sys.exec(": > /var/run/cfiptools.status 2>/dev/null")
     luci.sys.exec(": > /var/log/cfiptools.log 2>/dev/null")
@@ -161,25 +173,44 @@ function action_reset()
     luci.http.redirect(luci.dispatcher.build_url("admin", "services", "cfiptools", "main"))
 end
 
+-- 安全的文件读取，防路径遍历
 function action_read_file()
     local path = luci.http.formvalue("path") or ""
     luci.http.prepare_content("application/json")
     if path == "" then luci.http.write_json({ error = "路径为空" }); return end
-    if path:find("%.%.") then luci.http.write_json({ error = "非法路径" }); return end
-
-    local allowed = path:match("^/usr/share/cfiptools/") ~= nil
-    if not allowed then
+    
+    -- 规范化路径并防止目录遍历
+    local function safe_path(p)
+        -- 去除可能的 ../ 等
+        local normalized = p:gsub("\.\./", ""):gsub("/\.\.", "")
+        return normalized
+    end
+    
+    local safe = safe_path(path)
+    -- 使用白名单：仅允许 /usr/share/cfiptools/ 以及配置中指定的输出文件
+    local allowed = false
+    if safe:match("^/usr/share/cfiptools/") then
+        allowed = true
+    else
         local uci = require "luci.model.uci"
         local cursor = uci.cursor()
         local best = cursor:get("cfiptools", "config", "best_output_file")
         local full = cursor:get("cfiptools", "config", "full_output_file")
         local readme = cursor:get("cfiptools", "config", "readme_file")
-        if (best and path == best) or (full and path == full) or (readme and path == readme) then allowed = true end
+        if (best and safe == best) or (full and safe == full) or (readme and safe == readme) then
+            allowed = true
+        end
     end
 
     if not allowed then luci.http.write_json({ error = "路径不被允许" }); return end
-    if nixio.fs.access(path) then
-        local fd = io.open(path, "r")
+    
+    -- 额外检查：确保最终路径不包含 ..
+    if safe:find("\.\.") then
+        luci.http.write_json({ error = "非法路径" }); return
+    end
+    
+    if nixio.fs.access(safe) then
+        local fd = io.open(safe, "r")
         if fd then
             local content = fd:read("*a") or ""
             fd:close()
