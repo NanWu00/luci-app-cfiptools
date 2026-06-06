@@ -1,6 +1,5 @@
 name: 自动编译原生 APK 安装包
 
-于:
   push:
     分支: [ main ]
   workflow_dispatch:
