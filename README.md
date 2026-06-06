@@ -6,8 +6,10 @@
 从 [Releases](#) 下载最新编译的 `luci-app-cfiptools_x.x-x_all.apk` 安装包。
 使用 WinSCP、MobaXterm 或其他 SFTP 工具，将 `.apk` 文件上传至路由器的 `/tmp/` 目录中。
 
+
 ### 2. 执行安装命令
 通过 SSH 登录到路由器后台，依次执行以下指令：
+
 
 ```bash
 # 1. 进入临时目录
