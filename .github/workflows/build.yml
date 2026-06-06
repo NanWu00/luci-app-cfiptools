@@ -1,12 +1,10 @@
-name: 自动编译原生 APK 安装包
+name: 自动编译 ImmortalWrt APK
 
-push:
-    分支: [ main ]
-workflow_dispatch:
-
-# 消除刚才那个烦人的 Node.js 黄色警告
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+on:
+  push:
+    branches:
+      - main  # 当你推送代码到 main 分支时自动触发
+  workflow_dispatch: # 允许你在网页上手动点击按钮触发
 
 jobs:
   build:
@@ -19,29 +17,14 @@ jobs:
 
       - name: 配置编译环境
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libncurses5-dev gawk git libssl-dev gettext zlib1g-dev swig unzip time rsync python3 wget curl zstd
+          sudo apt update
+          sudo apt install -y build-essential libncurses5-dev gawk git libssl-dev gettext zlib1g-dev swig unzip time rsync python3 wget
 
-      - name: 获取 OpenWrt 官方原生快照 SDK
+      - name: 下载并解压 ImmortalWrt 24.10 SDK
         run: |
-          echo "==== 绕过动态防爬，直连 OpenWrt 官方底层服务器 ===="
-          BASE_URL="https://downloads.openwrt.org/snapshots/targets/x86/64/"
-          
-          # 提取实时 SDK 文件名
-          SDK_FILE=$(curl -sL "${BASE_URL}sha256sums" | grep 'openwrt-sdk' | awk '{print $2}' | sed 's/*//g' | head -n 1)
-          
-          if [ -z "$SDK_FILE" ]; then
-            echo "==== [致命错误] 未能在官方源中找到 SDK ===="
-            exit 1
-          fi
-          
-          echo "==== 成功锁定官方 SDK: $SDK_FILE ===="
-          wget "${BASE_URL}${SDK_FILE}"
-          tar -xf "$SDK_FILE"
-          
-          # 先删除下载的压缩包，防止通配符匹配冲突
-          rm -f "$SDK_FILE"
-          mv openwrt-sdk-* sdk
+          wget https://downloads.immortalwrt.org/releases/24.10.0/targets/x86/64/immortalwrt-sdk-24.10.0-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.xz
+          tar -xf immortalwrt-sdk-24.10.0-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.xz
+          mv immortalwrt-sdk-24.10.0-x86-64_gcc-13.3.0_musl.Linux-x86_64 sdk
 
       - name: 更新 Feeds 并安装 LuCI 依赖
         run: |
@@ -49,23 +32,22 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a -p luci
 
-      - name: 智能收集插件源码并移入车间 (已修复)
+      - name: 将插件源码移入 SDK 车间
         run: |
-          # 1. 在 SDK 内部提前建好专属文件夹
-          mkdir -p sdk/package/luci-app-cfiptools
-          
-          # 2. 像扫地一样，把当前仓库里的所有源码文件自动收集进去
-          rsync -a --exclude='sdk' --exclude='.git' --exclude='.github' ./ sdk/package/luci-app-cfiptools/
+          # 将仓库根目录下的 luci-app-cfiptools 复制到 SDK 的 package 目录中
+          cp -r luci-app-cfiptools sdk/package/
 
-      - name: 生成配置并开始定向编译
+      - name: 生成配置并开始编译
         run: |
           cd sdk
           make defconfig
+          # 针对你的插件进行定向编译
           make package/luci-app-cfiptools/compile -j$(nproc) || make package/luci-app-cfiptools/compile -j1 V=s
 
-      - name: 提取并上传终极 APK
+      - name: 提取并上传 APK 安装包
         uses: actions/upload-artifact@v4
         with:
           name: luci-app-cfiptools-apk
+          # 抓取生成的任意 apk 或 ipk 文件
           path: sdk/bin/packages/**/*.apk
           retention-days: 7
