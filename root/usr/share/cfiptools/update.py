@@ -149,6 +149,14 @@ def load_nodes(path: Path) -> list[Node]:
 
 def positive_worker_count(req: int, total: int) -> int: return max(1, min(max(1, req), max(1, total)))
 
+def print_progress(task_name: str, completed: int, total: int, bar_length: int = 30) -> None:
+    """生成并打印带百分比的字符画进度条"""
+    if total <= 0: return
+    percent = completed / total
+    filled = int(bar_length * percent)
+    bar = '█' * filled + '░' * (bar_length - filled)
+    print(f"\r{task_name} [{bar}] {percent*100:.1f}% ({completed}/{total})", end='', flush=True)
+
 async def tcping(node: Node, timeout: float) -> float | None:
     start = time.perf_counter()
     writer = None
@@ -165,7 +173,7 @@ async def tcping(node: Node, timeout: float) -> float | None:
 async def run_tcp_tests(nodes: Sequence[Node], *, timeout: float, workers: int, verbose: bool) -> list[TcpResult]:
     queue, results = asyncio.Queue(), []
     total = len(nodes)
-    print(f"TCP latency: 0/{total}", end='', flush=True)
+    print_progress("TCP 测速中", 0, total)
     completed = 0
 
     async def worker():
@@ -184,7 +192,7 @@ async def run_tcp_tests(nodes: Sequence[Node], *, timeout: float, workers: int, 
                 if verbose: print(f"\n[LAT Error] {node.raw} -> {e}")
             finally:
                 completed += 1
-                print(f"\rTCP latency: {completed}/{total}", end='', flush=True)
+                print_progress("TCP 测速中", completed, total)
                 queue.task_done()
 
     tasks = [asyncio.create_task(worker()) for _ in range(positive_worker_count(workers, len(nodes)))]
@@ -244,7 +252,7 @@ async def measure_speed_async(node: Node, timeout: float, process_buffer: float)
 async def run_speed_tests(candidates: Sequence[TcpResult], *, timeout: float, process_buffer: float, workers: int, min_speed: float, verbose: bool) -> list[SpeedResult]:
     queue, results = asyncio.Queue(), []
     total = len(candidates)
-    print(f"Download speed: 0/{total}", end='', flush=True)
+    print_progress("下载测速中", 0, total)
     completed = 0
 
     async def worker():
@@ -265,7 +273,7 @@ async def run_speed_tests(candidates: Sequence[TcpResult], *, timeout: float, pr
                 if verbose: print(f"\n[SPEED Error] {candidate.node.raw} -> {e}")
             finally:
                 completed += 1
-                print(f"\rDownload speed: {completed}/{total}", end='', flush=True)
+                print_progress("下载测速中", completed, total)
                 queue.task_done()
 
     tasks = [asyncio.create_task(worker()) for _ in range(positive_worker_count(workers, len(candidates)))]
