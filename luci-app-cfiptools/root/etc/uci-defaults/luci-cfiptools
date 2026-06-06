@@ -1,0 +1,10 @@
+#!/bin/sh
+
+# 如果系统中有旧的 LuCI 缓存则将其删除，强制立刻建立新菜单索引
+rm -f /tmp/luci-indexcache
+rm -rf /tmp/luci-modulecache/*
+
+# 确保配置文件的权限安全
+[ -f "/etc/config/cfiptools" ] && chmod 600 /etc/config/cfiptools
+
+exit 0
