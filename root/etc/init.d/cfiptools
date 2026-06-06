@@ -1,0 +1,33 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+USE_PROCD=1
+
+validate_cron() {
+	local enabled cron_schedule
+	config_get_bool enabled config enabled 0
+	config_get cron_schedule config cron_schedule "0 4 * * *"
+
+	# 清理旧的定时任务
+	sed -i '/cfiptools/d' /etc/crontabs/root 2>/dev/null || true
+
+	if [ "$enabled" -eq 1 ]; then
+		echo "$cron_schedule /usr/share/cfiptools/run.sh" >> /etc/crontabs/root
+	fi
+	/etc/init.d/cron restart
+}
+
+service_started() {
+	config_load cfiptools
+	validate_cron
+}
+
+service_stopped() {
+	sed -i '/cfiptools/d' /etc/crontabs/root 2>/dev/null || true
+	/etc/init.d/cron restart
+}
+
+reload_service() {
+	stop
+	start
+}

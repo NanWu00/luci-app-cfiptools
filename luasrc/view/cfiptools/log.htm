@@ -1,0 +1,84 @@
+<%+header%>
+
+<%
+local log_file = "/var/log/cfiptools.log"
+local log_content = ""
+if nixio.fs.access(log_file) then
+    local raw = luci.sys.exec("tail -n 500 " .. log_file .. " 2>/dev/null")
+    local lines = {}
+    for line in raw:gmatch("[^\r\n]+") do
+        table.insert(lines, 1, line)
+    end
+    log_content = table.concat(lines, "\n")
+end
+%>
+
+<style>
+.cf-log-toolbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 0; margin-bottom: 10px;
+    border-bottom: 1px solid #dee2e6;
+}
+.cf-log-toolbar span {
+    font-size: 14px; font-weight: 600; color: #32325d;
+}
+.cf-log-toolbar a {
+    display: inline-block; padding: 5px 14px;
+    background: #5e72e4; color: #fff; border-radius: 4px;
+    text-decoration: none; font-size: 12px; margin-left: auto;
+}
+.cf-log-toolbar a:hover { background: #4a5ad4; }
+.cf-log-box {
+    background: #fff; border: 1px solid #ced4da; border-radius: 4px;
+    padding: 12px 14px; color: #212529;
+    font-family: "Cascadia Code", "Fira Code", "Courier New", Consolas, monospace;
+    font-size: 13px; line-height: 1.55;
+    max-height: 65vh; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all;
+}
+.cf-log-box .log-ts { color: #5e72e4; }
+.cf-log-box .log-src { color: #2dce89; font-weight: 500; }
+.cf-log-empty { text-align: center; padding: 40px 20px; color: #6c757d; font-size: 13px; }
+.cf-log-meta { font-size: 11px; color: #6c757d; margin-bottom: 4px; }
+</style>
+
+<div class="cf-log-toolbar">
+    <span>CF IP Tools 运行日志</span>
+    <a href="#" onclick="refreshLog();return false;">刷新</a>
+    <a href="<%=luci.dispatcher.build_url('admin','services','cfiptools','clear_log')%>"
+       onclick="return confirm('确定清除所有日志？')">清空日志</a>
+    <a href="<%=luci.dispatcher.build_url('admin','services','cfiptools','main')%>">返回设置</a>
+</div>
+
+<div class="cf-log-meta">时间倒序显示（最新在前） · 每 5 秒自动刷新</div>
+
+<div class="cf-log-box" id="log-area">
+<% if log_content and log_content ~= "" then %>
+<%=luci.util.pcdata(log_content)%>
+<% else %>
+<div class="cf-log-empty">暂无日志，请先运行测速。</div>
+<% end %>
+</div>
+
+<script>
+var pollTimer = null;
+function refreshLog() {
+    fetch('<%=luci.dispatcher.build_url("admin","services","cfiptools","log_poll")%>')
+        .then(function(r){return r.json()})
+        .then(function(d){
+            var area = document.getElementById('log-area');
+            if (d.content && d.content !== '') {
+                area.innerHTML = d.content;
+            } else {
+                area.innerHTML = '<div class="cf-log-empty">暂无日志，请先运行测速。</div>';
+            }
+        });
+}
+function startPoll() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(refreshLog, 5000);
+}
+startPoll();
+</script>
+
+<%+footer%>
