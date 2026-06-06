@@ -38,7 +38,7 @@ upload_github() {
     fi
 
     echo "Uploading via GitHub REST API (Python)..."
-    
+
     python3 -c '
 import sys, os, base64, json, urllib.request, urllib.error
 

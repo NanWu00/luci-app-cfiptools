@@ -13,11 +13,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
-# tqdm 依赖已移除，改用简单进度输出（可选）
+# 移除 tqdm，使用简单进度
 IS_TTY = sys.stdout.isatty()
 
 def simple_progress(iterable, desc="", total=None):
-    """简单的进度替代 tqdm"""
+    """Simple progress indicator."""
     if total is None:
         total = len(iterable) if hasattr(iterable, '__len__') else 0
     print(f"{desc}: 0/{total}", end='')
@@ -26,7 +26,7 @@ def simple_progress(iterable, desc="", total=None):
         if IS_TTY:
             print(f"\r{desc}: {i}/{total}", end='')
     if IS_TTY:
-        print()  # 换行
+        print()
 
 DEFAULT_INPUT_FILE = Path("ips.txt")
 DEFAULT_INPUT_URL = "https://zip.cm.edu.kg/all.txt"
@@ -198,7 +198,6 @@ async def tcping(node: Node, timeout: float) -> float | None:
 
 async def run_tcp_tests(nodes: Sequence[Node], *, timeout: float, workers: int, verbose: bool) -> list[TcpResult]:
     queue, results = asyncio.Queue(), []
-    # 使用简单进度替代 tqdm
     total = len(nodes)
     print(f"TCP latency: 0/{total}", end='')
     completed = 0
@@ -227,7 +226,7 @@ async def run_tcp_tests(nodes: Sequence[Node], *, timeout: float, workers: int, 
     for _ in tasks: queue.put_nowait(None)
     await queue.join()
     await asyncio.gather(*tasks)
-    if IS_TTY: print()  # 换行
+    if IS_TTY: print()
     return results
 
 def select_candidates(results: Iterable[TcpResult], top_per_region: int) -> list[TcpResult]:
@@ -358,12 +357,12 @@ async def run(config: AppConfig) -> int:
     try: nodes = load_nodes(config.input_file)
     except FileNotFoundError as exc: print(f"ERROR: {exc}"); return 1
     if not nodes: print(f"ERROR: no valid nodes found in {config.input_file}"); return 1
-    
+
     tcp_results = await run_tcp_tests(nodes, timeout=config.tcp_timeout, workers=config.tcp_workers, verbose=config.verbose)
     candidates = select_candidates(tcp_results, config.top_per_region)
-    
+
     speed_results = await run_speed_tests(candidates, timeout=config.speed_timeout, process_buffer=config.speed_process_buffer, workers=config.speed_workers, min_speed=config.min_speed_mbps, verbose=config.verbose) if candidates else []
-    
+
     best_results = await supplement_my_results(filter_fast_results(speed_results), tcp_results, config)
     write_results(config.full_output_file, speed_results, config.numbered_regions, show_latency=config.show_latency, show_mbps=config.show_mbps, fast_label=config.fast_label)
     write_results(config.best_output_file, best_results, config.numbered_regions, show_latency=config.show_latency, show_mbps=config.show_mbps, fast_label=config.fast_label)

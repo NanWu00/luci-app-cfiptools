@@ -1,8 +1,7 @@
 module("luci.controller.cfiptools", package.seeall)
 
 function index()
-    -- 不再检查配置文件是否存在，让菜单始终显示
-    -- 如果配置不存在，首次访问时会通过重置创建默认配置
+    -- 不再检查配置文件是否存在，始终显示菜单
     entry({"admin", "services", "cfiptools"}, alias("admin", "services", "cfiptools", "main"), _("CFIP优选"), 90)
     entry({"admin", "services", "cfiptools", "main"}, call("action_main"), _("CFIP优选"), 10)
     entry({"admin", "services", "cfiptools", "save"}, call("action_save"))
@@ -39,7 +38,7 @@ function action_save()
     cursor:commit("cfiptools")
     luci.sys.call("/etc/init.d/cfiptools restart >/dev/null 2>&1")
     luci.sys.call("/etc/init.d/cron restart >/dev/null 2>&1")
-    
+
     if luci.http.formvalue("ajax") == "1" then
         luci.http.prepare_content("application/json")
         luci.http.write_json({status = "ok"})
@@ -58,7 +57,6 @@ function action_start_test()
             return
         end
     end
-    -- 使用 run.sh 启动，并记录 PID（run.sh 自身会写入 PID）
     luci.sys.exec("/usr/share/cfiptools/run.sh > /dev/null 2>&1 &")
     luci.http.prepare_content("application/json")
     luci.http.write_json({status = "started", message = "Test started"})
@@ -71,15 +69,12 @@ function action_stop_test()
         luci.http.write_json({status = "not_running", message = "No test is running"})
         return
     end
-    -- 正确终止进程树
     local pid = tonumber(luci.sys.exec("cat " .. pid_file))
     if pid then
-        -- 先发 TERM，再发 KILL
         luci.sys.exec("kill -TERM " .. pid .. " 2>/dev/null")
         luci.sys.exec("sleep 1")
         luci.sys.exec("kill -KILL " .. pid .. " 2>/dev/null")
     end
-    -- 清理可能残留的 python 和 curl 进程
     luci.sys.exec("pkill -f 'update.py' 2>/dev/null")
     luci.sys.exec("pkill -f 'curl.*speed.cloudflare.com' 2>/dev/null")
     luci.sys.exec("rm -f " .. pid_file)
@@ -178,16 +173,16 @@ function action_read_file()
     local path = luci.http.formvalue("path") or ""
     luci.http.prepare_content("application/json")
     if path == "" then luci.http.write_json({ error = "路径为空" }); return end
-    
-    -- 规范化路径并防止目录遍历
+
+    -- 规范化路径（移除可能的上层目录引用）
     local function safe_path(p)
-        -- 去除可能的 ../ 等
-        local normalized = p:gsub("\.\./", ""):gsub("/\.\.", "")
-        return normalized
+        -- 移除 ../ 和 ..\ 以及 URL 编码
+        local np = p:gsub("%.%.+/", ""):gsub("/%%.%%.", "")
+        return np
     end
-    
+
     local safe = safe_path(path)
-    -- 使用白名单：仅允许 /usr/share/cfiptools/ 以及配置中指定的输出文件
+    -- 白名单：仅允许 /usr/share/cfiptools/ 下的文件，或者配置中的输出文件
     local allowed = false
     if safe:match("^/usr/share/cfiptools/") then
         allowed = true
@@ -203,12 +198,12 @@ function action_read_file()
     end
 
     if not allowed then luci.http.write_json({ error = "路径不被允许" }); return end
-    
-    -- 额外检查：确保最终路径不包含 ..
-    if safe:find("\.\.") then
+
+    -- 额外检查：最终路径不能包含 ..
+    if safe:find("%.%.", 1, true) then
         luci.http.write_json({ error = "非法路径" }); return
     end
-    
+
     if nixio.fs.access(safe) then
         local fd = io.open(safe, "r")
         if fd then
@@ -258,9 +253,9 @@ function action_manual_upload()
             export GITHUB_MESSAGE=%s
             export GIT_HTTP_PROXY=%s
             export GIT_HTTPS_PROXY=%s
-            
+
             sh /usr/share/cfiptools/push_results.sh >> /var/log/cfiptools.log 2>&1
-            
+
             if [ $? -eq 0 ]; then
                 echo "[$(date +'%%Y-%%m-%%d %%H:%%M:%%S')] [手动触发] 上传完成" >> /var/log/cfiptools.log
             else

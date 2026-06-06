@@ -12,8 +12,12 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"; }
 set_status() { echo "$1" > "$STATUS_FILE"; log "STATUS: $1"; }
 
 load_uci() {
-    local section
-    if uci -q get cfiptools.config >/dev/null 2>&1; then section="config"; else section="@cfiptools[0]"; fi
+    local section="config"
+    # 如果 config 节不存在，尝试获取第一个匿名节
+    if ! uci -q get cfiptools.config >/dev/null 2>&1; then
+        section=$(uci -q show cfiptools | head -n1 | cut -d. -f2 | cut -d= -f1)
+        [ -z "$section" ] && section="config"
+    fi
 
     uci_get() {
         local key="$1" default="$2"
@@ -118,7 +122,7 @@ run_post_command() {
     fi
 }
 
-# 安全地执行 Python 脚本，参数使用引号传递
+# 使用安全方式传递参数
 run_python() {
     cd "$DATA_DIR"
     python3 "$DATA_DIR/update.py" "$@"
@@ -143,7 +147,6 @@ run_test() {
 
     log "Paths: input=$INPUT_FILE | full=$FULL_OUTPUT | best=$BEST_OUTPUT | readme=$README_FILE"
 
-    # 下载 IP 列表
     if [ "${CFG_download_input:-1}" = "1" ] && [ -n "${CFG_input_url:-}" ]; then
         set_status "下载IP列表"
         log "Downloading IP list from ${CFG_input_url}"
@@ -154,11 +157,10 @@ run_test() {
             -o "$INPUT_FILE" "${CFG_input_url}" >> "$LOG_FILE" 2>&1; then
             log "Download succeeded"
         else
-            log "Download failed, but will try to use existing file"
+            log "Download failed, will try to use existing file"
         fi
     fi
 
-    # 检查输入文件是否存在
     if [ ! -f "$INPUT_FILE" ]; then
         set_status "失败：无输入文件"
         log "ERROR: Input file $INPUT_FILE not found and download failed"
@@ -166,7 +168,6 @@ run_test() {
         exit 1
     fi
 
-    # 限制节点数量
     MAX_NODES="${CFG_max_nodes:-0}"
     if [ "$MAX_NODES" -gt 0 ] 2>/dev/null; then
         log "Limiting to first $MAX_NODES nodes"
