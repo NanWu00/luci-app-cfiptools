@@ -13,21 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
-# 移除 tqdm，使用简单进度
-IS_TTY = sys.stdout.isatty()
-
-def simple_progress(iterable, desc="", total=None):
-    """Simple progress indicator."""
-    if total is None:
-        total = len(iterable) if hasattr(iterable, '__len__') else 0
-    print(f"{desc}: 0/{total}", end='')
-    for i, item in enumerate(iterable, 1):
-        yield item
-        if IS_TTY:
-            print(f"\r{desc}: {i}/{total}", end='')
-    if IS_TTY:
-        print()
-
 DEFAULT_INPUT_FILE = Path("ips.txt")
 DEFAULT_INPUT_URL = "https://zip.cm.edu.kg/all.txt"
 DEFAULT_INPUT_DOWNLOAD_TIMEOUT = 30.0
@@ -199,7 +184,7 @@ async def tcping(node: Node, timeout: float) -> float | None:
 async def run_tcp_tests(nodes: Sequence[Node], *, timeout: float, workers: int, verbose: bool) -> list[TcpResult]:
     queue, results = asyncio.Queue(), []
     total = len(nodes)
-    print(f"TCP latency: 0/{total}", end='')
+    print(f"TCP latency: 0/{total}", end='', flush=True)
     completed = 0
 
     async def worker():
@@ -214,8 +199,7 @@ async def run_tcp_tests(nodes: Sequence[Node], *, timeout: float, workers: int, 
                     if verbose:
                         print(f"\n[LAT] {node.raw} -> {latency} ms")
                 completed += 1
-                if IS_TTY:
-                    print(f"\rTCP latency: {completed}/{total}", end='')
+                print(f"\rTCP latency: {completed}/{total}", end='', flush=True)
                 queue.task_done()
             except:
                 queue.task_done()
@@ -226,7 +210,7 @@ async def run_tcp_tests(nodes: Sequence[Node], *, timeout: float, workers: int, 
     for _ in tasks: queue.put_nowait(None)
     await queue.join()
     await asyncio.gather(*tasks)
-    if IS_TTY: print()
+    print()
     return results
 
 def select_candidates(results: Iterable[TcpResult], top_per_region: int) -> list[TcpResult]:
@@ -276,7 +260,7 @@ async def measure_speed_async(node: Node, timeout: float, process_buffer: float)
 async def run_speed_tests(candidates: Sequence[TcpResult], *, timeout: float, process_buffer: float, workers: int, min_speed: float, verbose: bool) -> list[SpeedResult]:
     queue, results = asyncio.Queue(), []
     total = len(candidates)
-    print(f"Download speed: 0/{total}", end='')
+    print(f"Download speed: 0/{total}", end='', flush=True)
     completed = 0
 
     async def worker():
@@ -292,8 +276,7 @@ async def run_speed_tests(candidates: Sequence[TcpResult], *, timeout: float, pr
                     status = "FAST" if result.is_fast else "NORMAL"
                     print(f"\n[SPEED] {candidate.node.raw} -> {speed} Mbps {status}")
                 completed += 1
-                if IS_TTY:
-                    print(f"\rDownload speed: {completed}/{total}", end='')
+                print(f"\rDownload speed: {completed}/{total}", end='', flush=True)
                 queue.task_done()
             except:
                 queue.task_done()
@@ -304,7 +287,7 @@ async def run_speed_tests(candidates: Sequence[TcpResult], *, timeout: float, pr
     for _ in tasks: queue.put_nowait(None)
     await queue.join()
     await asyncio.gather(*tasks)
-    if IS_TTY: print()
+    print()
     results.sort(key=lambda item: (item.node.region, item.latency_ms, -item.speed_mbps))
     return results
 

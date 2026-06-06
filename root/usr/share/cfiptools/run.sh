@@ -125,7 +125,8 @@ run_post_command() {
 # 使用安全方式传递参数
 run_python() {
     cd "$DATA_DIR"
-    python3 "$DATA_DIR/update.py" "$@"
+    # -u 强制取消 Python 的全缓冲，并确保标准输出实时写进你的 LOG_FILE
+    python3 -u "$DATA_DIR/update.py" "$@" >> "$LOG_FILE" 2>&1
 }
 
 run_test() {

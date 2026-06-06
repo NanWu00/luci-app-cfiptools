@@ -513,8 +513,12 @@ function fetchLogPoll() {
             if(d.content!==undefined && d.content!==null){
                 if(d.content===box._lastContent) return;
                 var wasAtTop=box.scrollTop<=5;
-                box.textContent=d.content;
-                box._lastContent=d.content;
+                
+                // 核心魔法：使用正则吃掉 \r 之前的废弃字符串，完美模拟终端覆盖进度条效果
+                var cleanContent = d.content.replace(/.*[\r](?!\n)/g, '');
+                
+                box.textContent=cleanContent;
+                box._lastContent=d.content; // 缓存依然保留原始数据做比对，防止频繁 DOM 刷新
                 if(wasAtTop) box.scrollTop=0;
             }
         })
