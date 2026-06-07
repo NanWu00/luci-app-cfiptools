@@ -136,8 +136,7 @@ run_test() {
     fi
     echo $$ > "$PID_FILE"
 
-    # 新增防弹装甲：强制执行清理操作，防止异常中断导致系统防火墙死锁
-    trap 'cleanup_proxy_bypass; rm -f "$PID_FILE"' EXIT INT TERM
+    trap 'cleanup_proxy_bypass; pkill -9 -f "update.py" 2>/dev/null; pkill -9 -f "curl.*speed.cloudflare.com" 2>/dev/null; rm -f "$PID_FILE"' EXIT INT TERM
 
     load_uci
     run_pre_command
