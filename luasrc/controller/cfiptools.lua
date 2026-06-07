@@ -1,7 +1,6 @@
 module("luci.controller.cfiptools", package.seeall)
 
 function index()
-    -- 不再检查配置文件是否存在，始终显示菜单
     entry({"admin", "services", "cfiptools"}, alias("admin", "services", "cfiptools", "main"), _("CFIP优选"), 90)
     entry({"admin", "services", "cfiptools", "main"}, call("action_main"), _("CFIP优选"), 10)
     entry({"admin", "services", "cfiptools", "save"}, call("action_save"))
@@ -62,23 +61,45 @@ function action_start_test()
     luci.http.write_json({status = "started", message = "Test started"})
 end
 
+-- ================== 严谨版：启动逻辑（带多开检测） ==================
+function action_start_test()
+    -- 检查是否已有 update.py 在运行，防止多开
+    local is_running = luci.sys.exec("pgrep -f 'update.py'")
+    if is_running ~= "" then
+        luci.http.prepare_content("application/json")
+        luci.http.write_json({status = "already_running", message = "测试已经在运行中，请勿重复点击"})
+        return
+    end
+
+    -- 启动新进程
+    luci.sys.exec("/usr/share/cfiptools/run.sh </dev/null >/dev/null 2>&1 &")
+    luci.http.prepare_content("application/json")
+    luci.http.write_json({status = "started", message = "测试启动成功"})
+end
+
+-- ================== 最终版：带日志反馈的停止逻辑 ==================
 function action_stop_test()
-    local pid_file = "/var/run/cfiptools.pid"
-    if nixio.fs.access(pid_file) then
-        local pid = luci.sys.exec("cat " .. pid_file .. " 2>/dev/null"):gsub("%s+", "")
-        if pid and pid ~= "" then
-            luci.sys.exec("kill -TERM " .. pid .. " 2>/dev/null")
+    -- 1. 记录动作到日志，让用户知道操作已触发
+    luci.sys.exec("echo '--- [INFO] 正在尝试强制终止任务... ---' >> /var/log/cfiptools.log")
+    
+    -- 2. 执行 PID 迭代杀法
+    local pids = luci.sys.exec("pgrep -f 'cfiptools' ; pgrep -f 'update.py' ; pgrep -f 'curl'"):gsub("\n", " ")
+    if pids ~= "" then
+        for pid in pids:gmatch("%S+") do
+            luci.sys.exec("kill -9 " .. pid .. " 2>/dev/null")
         end
     end
+    luci.sys.exec("killall -9 run.sh 2>/dev/null")
     
-    -- 去除 sleep 阻塞，直接进行雷霆全网追杀
-    luci.sys.exec("pkill -9 -f '/usr/share/cfiptools/update.py' 2>/dev/null")
-    luci.sys.exec("pkill -9 -f 'curl.*speed.cloudflare.com' 2>/dev/null")
-    luci.sys.exec("rm -f " .. pid_file)
-    luci.sys.exec("echo '空闲' > /var/run/cfiptools.status")
+    -- 3. 记录停止结果
+    luci.sys.exec("echo '--- [STOPPED] 任务已强制中断 ---' >> /var/log/cfiptools.log")
+    
+    -- 4. 清理残留与状态
+    luci.sys.exec("rm -f /var/run/cfiptools.pid 2>/dev/null")
+    luci.sys.exec("echo '空闲' > /var/run/cfiptools.status 2>/dev/null")
     
     luci.http.prepare_content("application/json")
-    luci.http.write_json({status = "stopped", message = "Test stopped"})
+    luci.http.write_json({status = "stopped", message = "已执行全量 PID 清理"})
 end
 
 function action_get_status()
@@ -108,22 +129,18 @@ function action_log_view()
     local log_file = "/var/log/cfiptools.log"
     local log_content = ""
     if nixio.fs.access(log_file) then
-        -- 暴力读取原汁原味的日志，保留所有的 \r，不做任何破坏
         log_content = luci.sys.exec("tail -n 1000 " .. log_file .. " 2>/dev/null") or ""
     end
     luci.template.render("cfiptools/log", { log_content = log_content })
 end
 
+-- ================== 修好了：保留控制符的轮询 ==================
 function action_log_poll()
     local log_file = "/var/log/cfiptools.log"
     local content = ""
     if nixio.fs.access(log_file) then
-        -- 核心修正：使用 -c 读取最后字节，不要用 -n，这样才能绝对保留 \r 回车符
         content = luci.sys.exec("tail -c 20000 " .. log_file .. " 2>/dev/null") or ""
     end
-    luci.http.prepare_content("application/json")
-    luci.http.write_json({ content = content })
-end
     luci.http.prepare_content("application/json")
     luci.http.write_json({ content = content })
 end
@@ -165,21 +182,17 @@ function action_reset()
     luci.http.redirect(luci.dispatcher.build_url("admin", "services", "cfiptools", "main"))
 end
 
--- 安全的文件读取，防路径遍历
 function action_read_file()
     local path = luci.http.formvalue("path") or ""
     luci.http.prepare_content("application/json")
     if path == "" then luci.http.write_json({ error = "路径为空" }); return end
 
-    -- 规范化路径（移除可能的上层目录引用）
     local function safe_path(p)
-        -- 移除 ../ 和 ..\ 以及 URL 编码
         local np = p:gsub("%.%.+/", ""):gsub("/%%.%%.", "")
         return np
     end
 
     local safe = safe_path(path)
-    -- 白名单：仅允许 /usr/share/cfiptools/ 下的文件，或者配置中的输出文件
     local allowed = false
     if safe:match("^/usr/share/cfiptools/") then
         allowed = true
@@ -196,7 +209,6 @@ function action_read_file()
 
     if not allowed then luci.http.write_json({ error = "路径不被允许" }); return end
 
-    -- 额外检查：最终路径不能包含 ..
     if safe:find("%.%.", 1, true) then
         luci.http.write_json({ error = "非法路径" }); return
     end
