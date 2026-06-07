@@ -64,21 +64,19 @@ end
 
 function action_stop_test()
     local pid_file = "/var/run/cfiptools.pid"
-    if not nixio.fs.access(pid_file) then
-        luci.http.prepare_content("application/json")
-        luci.http.write_json({status = "not_running", message = "No test is running"})
-        return
+    if nixio.fs.access(pid_file) then
+        local pid = luci.sys.exec("cat " .. pid_file .. " 2>/dev/null"):gsub("%s+", "")
+        if pid and pid ~= "" then
+            luci.sys.exec("kill -TERM " .. pid .. " 2>/dev/null")
+        end
     end
-    local pid = tonumber(luci.sys.exec("cat " .. pid_file))
-    if pid then
-        luci.sys.exec("kill -TERM " .. pid .. " 2>/dev/null")
-        luci.sys.exec("sleep 1")
-        luci.sys.exec("kill -KILL " .. pid .. " 2>/dev/null")
-    end
-    luci.sys.exec("pkill -f '/usr/share/cfiptools/update.py' 2>/dev/null")
-    luci.sys.exec("pkill -f 'curl.*speed.cloudflare.com' 2>/dev/null")
+    
+    -- 去除 sleep 阻塞，直接进行雷霆全网追杀
+    luci.sys.exec("pkill -9 -f '/usr/share/cfiptools/update.py' 2>/dev/null")
+    luci.sys.exec("pkill -9 -f 'curl.*speed.cloudflare.com' 2>/dev/null")
     luci.sys.exec("rm -f " .. pid_file)
-    luci.sys.exec(": > /var/run/cfiptools.status 2>/dev/null")
+    luci.sys.exec("echo '空闲' > /var/run/cfiptools.status")
+    
     luci.http.prepare_content("application/json")
     luci.http.write_json({status = "stopped", message = "Test stopped"})
 end
@@ -120,22 +118,12 @@ function action_log_poll()
     local log_file = "/var/log/cfiptools.log"
     local content = ""
     if nixio.fs.access(log_file) then
-        -- 暴力读取原汁原味的日志
-        content = luci.sys.exec("tail -n 1000 " .. log_file .. " 2>/dev/null") or ""
+        -- 核心修正：使用 -c 读取最后字节，不要用 -n，这样才能绝对保留 \r 回车符
+        content = luci.sys.exec("tail -c 20000 " .. log_file .. " 2>/dev/null") or ""
     end
     luci.http.prepare_content("application/json")
     luci.http.write_json({ content = content })
 end
-
-function action_log_poll()
-    local log_file = "/var/log/cfiptools.log"
-    local content = ""
-    if nixio.fs.access(log_file) then
-        local raw = luci.sys.exec("tail -n 500 " .. log_file .. " 2>/dev/null")
-        local lines = {}
-        for line in raw:gmatch("[^\r\n]+") do table.insert(lines, 1, luci.util.pcdata(line)) end
-        content = table.concat(lines, "\n")
-    end
     luci.http.prepare_content("application/json")
     luci.http.write_json({ content = content })
 end
