@@ -110,12 +110,21 @@ function action_log_view()
     local log_file = "/var/log/cfiptools.log"
     local log_content = ""
     if nixio.fs.access(log_file) then
-        local raw = luci.sys.exec("tail -n 500 " .. log_file .. " 2>/dev/null")
-        local lines = {}
-        for line in raw:gmatch("[^\r\n]+") do table.insert(lines, 1, line) end
-        log_content = table.concat(lines, "\n")
+        -- 暴力读取原汁原味的日志，保留所有的 \r，不做任何破坏
+        log_content = luci.sys.exec("tail -n 1000 " .. log_file .. " 2>/dev/null") or ""
     end
     luci.template.render("cfiptools/log", { log_content = log_content })
+end
+
+function action_log_poll()
+    local log_file = "/var/log/cfiptools.log"
+    local content = ""
+    if nixio.fs.access(log_file) then
+        -- 暴力读取原汁原味的日志
+        content = luci.sys.exec("tail -n 1000 " .. log_file .. " 2>/dev/null") or ""
+    end
+    luci.http.prepare_content("application/json")
+    luci.http.write_json({ content = content })
 end
 
 function action_log_poll()
