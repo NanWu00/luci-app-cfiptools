@@ -40,7 +40,7 @@ upload_github() {
     echo "Uploading via GitHub REST API (Python)..."
 
     python3 -c '
-import sys, os, base64, json, urllib.request, urllib.error
+import sys, os, base64, json, urllib.request, urllib.error, ssl, time
 
 repo = os.environ.get("GITHUB_REPO")
 branch = os.environ.get("GITHUB_BRANCH", "main")
@@ -53,10 +53,17 @@ files = ["best_ips.txt", "full_ips.txt", "README.MD"]
 if not token or not repo:
     sys.exit("Error: Missing token or repo")
 
+# 核心防护 1：创建无校验的 SSL 上下文，防止软路由透明代理劫持导致的 TLS 报错
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+
 if proxy:
     proxy_handler = urllib.request.ProxyHandler({"http": proxy, "https": proxy})
-    opener = urllib.request.build_opener(proxy_handler)
-    urllib.request.install_opener(opener)
+    opener = urllib.request.build_opener(proxy_handler, urllib.request.HTTPSHandler(context=ctx))
+else:
+    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
+urllib.request.install_opener(opener)
 
 def api_req(method, endpoint, data=None):
     url = f"https://api.github.com/repos/{repo}{endpoint}"
@@ -65,18 +72,25 @@ def api_req(method, endpoint, data=None):
         "Accept": "application/vnd.github.v3+json",
         "User-Agent": "CF-IP-Tools-Python"
     }
-    req = urllib.request.Request(url, method=method, headers=headers)
-    if data is not None:
-        req.data = json.dumps(data).encode("utf-8")
-        req.add_header("Content-Type", "application/json")
-    try:
-        with urllib.request.urlopen(req) as f:
-            return json.loads(f.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        err = e.read().decode("utf-8")
-        sys.exit(f"GitHub API Error {e.code}: {err}")
-    except Exception as e:
-        sys.exit(f"Network Error: {e}")
+    
+    # 核心防护 2：增加 3 次自动重试机制
+    for attempt in range(3):
+        req = urllib.request.Request(url, method=method, headers=headers)
+        if data is not None:
+            req.data = json.dumps(data).encode("utf-8")
+            req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=20) as f:
+                return json.loads(f.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            err = e.read().decode("utf-8")
+            sys.exit(f"GitHub API Error {e.code}: {err}")
+        except Exception as e:
+            print(f"Network Error (attempt {attempt+1}/3): {e}")
+            if attempt < 2:
+                time.sleep(3) # 失败后等待 3 秒再试
+            else:
+                sys.exit(f"Network Error after 3 attempts: {e}")
 
 try:
     ref_data = api_req("GET", f"/git/refs/heads/{branch}")

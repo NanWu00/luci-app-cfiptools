@@ -17,19 +17,17 @@ end
 .cf-log-toolbar {
     display: flex; align-items: center; gap: 8px;
     padding: 10px 0; margin-bottom: 10px;
-    border-bottom: 1px solid #dee2e6; flex-wrap: wrap;
+    border-bottom: 1px solid #dee2e6;
 }
 .cf-log-toolbar span {
     font-size: 14px; font-weight: 600; color: #32325d;
 }
-.cf-log-toolbar a, .cf-log-toolbar button {
+.cf-log-toolbar a {
     display: inline-block; padding: 5px 14px;
     background: #5e72e4; color: #fff; border-radius: 4px;
     text-decoration: none; font-size: 12px; margin-left: auto;
-    border: none; cursor: pointer;
 }
-.cf-log-toolbar a:hover, .cf-log-toolbar button:hover { background: #4a5ad4; }
-.cf-log-toolbar button:disabled { background: #ccc; cursor: not-allowed; }
+.cf-log-toolbar a:hover { background: #4a5ad4; }
 .cf-log-box {
     background: #fff; border: 1px solid #ced4da; border-radius: 4px;
     padding: 12px 14px; color: #212529;
@@ -42,38 +40,17 @@ end
 .cf-log-box .log-src { color: #2dce89; font-weight: 500; }
 .cf-log-empty { text-align: center; padding: 40px 20px; color: #6c757d; font-size: 13px; }
 .cf-log-meta { font-size: 11px; color: #6c757d; margin-bottom: 4px; }
-.cf-pager {
-    display: flex; align-items: center; gap: 6px; margin-top: 10px;
-    justify-content: center; flex-wrap: wrap;
-}
-.cf-pager button {
-    padding: 4px 12px; font-size: 12px;
-}
-.cf-pager span { font-size: 12px; color: #32325d; }
-.cf-mode-switch {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 12px; color: #32325d; margin-left: 8px;
-}
 </style>
 
 <div class="cf-log-toolbar">
     <span>CF IP Tools 运行日志</span>
     <a href="#" onclick="refreshLog();return false;">刷新</a>
-    <button id="btn-prev" onclick="prevPage()" disabled>上一页</button>
-    <button id="btn-next" onclick="nextPage()">下一页</button>
-    <button id="btn-pause" onclick="togglePause()">暂停刷新</button>
-    <button id="btn-realtime" onclick="goRealtime()" style="display:none;">回到最新</button>
-    <div class="cf-mode-switch">
-        <span id="mode-indicator">🔴 实时模式</span>
-    </div>
     <a href="<%=luci.dispatcher.build_url('admin','services','cfiptools','clear_log')%>"
        onclick="return confirm('确定清除所有日志？')">清空日志</a>
     <a href="<%=luci.dispatcher.build_url('admin','services','cfiptools','main')%>">返回设置</a>
 </div>
 
-<div class="cf-log-meta">
-    <span id="log-info">时间倒序显示（最新在前） · 每 5 秒自动刷新</span>
-</div>
+<div class="cf-log-meta">时间倒序显示（最新在前） · 每 5 秒自动刷新</div>
 
 <div class="cf-log-box" id="log-area">
 <% if log_content and log_content ~= "" then %>
@@ -83,142 +60,24 @@ end
 <% end %>
 </div>
 
-<div class="cf-pager" id="pager" style="display:none;">
-    <button onclick="firstPage()">|&lt;</button>
-    <button id="btn-page-prev" onclick="prevPage()">&lt; 上一页</button>
-    <span id="page-info">第 1 页</span>
-    <button id="btn-page-next" onclick="nextPage()">下一页 &gt;</button>
-    <button onclick="lastPage()">&gt;|</button>
-</div>
-
 <script>
 var pollTimer = null;
-var currentPage = 1;
-var pageSize = 50;
-var totalPages = 1;
-var isPaused = false;
-var isRealtime = true;
-var userScrolling = false;
-var scrollTimeout = null;
-
 function refreshLog() {
-    if (isPaused && !isRealtime) return;
-    
-    var url = '<%=luci.dispatcher.build_url("admin","services","cfiptools","log_poll")%>';
-    if (!isRealtime) {
-        url = '<%=luci.dispatcher.build_url("admin","services","cfiptools","log_page")%>' + 
-              '?page=' + currentPage + '&pagesize=' + pageSize;
-    }
-    
-    fetch(url)
+    fetch('<%=luci.dispatcher.build_url("admin","services","cfiptools","log_poll")%>')
         .then(function(r){return r.json()})
         .then(function(d){
             var area = document.getElementById('log-area');
             if (d.content && d.content !== '') {
-                area.innerHTML = d.content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                area.innerHTML = d.content;
             } else {
                 area.innerHTML = '<div class="cf-log-empty">暂无日志，请先运行测速。</div>';
             }
-            
-            if (!isRealtime && d.total !== undefined) {
-                totalPages = Math.ceil(d.total / pageSize) || 1;
-                updatePager();
-            }
         });
 }
-
 function startPoll() {
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(refreshLog, 5000);
 }
-
-function togglePause() {
-    isPaused = !isPaused;
-    var btn = document.getElementById('btn-pause');
-    btn.textContent = isPaused ? '继续刷新' : '暂停刷新';
-    document.getElementById('mode-indicator').textContent = isPaused ? '⏸️ 已暂停' : '🔴 实时模式';
-}
-
-function enterPagingMode() {
-    isRealtime = false;
-    document.getElementById('pager').style.display = 'flex';
-    document.getElementById('btn-realtime').style.display = 'inline-block';
-    document.getElementById('btn-prev').disabled = false;
-    document.getElementById('btn-next').disabled = false;
-    document.getElementById('mode-indicator').textContent = '📖 分页浏览';
-    document.getElementById('log-info').textContent = '正在查看历史日志 · 自动刷新已暂停';
-}
-
-function goRealtime() {
-    isRealtime = true;
-    isPaused = false;
-    currentPage = 1;
-    document.getElementById('pager').style.display = 'none';
-    document.getElementById('btn-realtime').style.display = 'none';
-    document.getElementById('btn-pause').textContent = '暂停刷新';
-    document.getElementById('mode-indicator').textContent = '🔴 实时模式';
-    document.getElementById('log-info').textContent = '时间倒序显示（最新在前） · 每 5 秒自动刷新';
-    refreshLog();
-}
-
-function prevPage() {
-    if (currentPage > 1) {
-        currentPage--;
-        enterPagingMode();
-        refreshLog();
-    }
-}
-
-function nextPage() {
-    if (currentPage < totalPages) {
-        currentPage++;
-        enterPagingMode();
-        refreshLog();
-    }
-}
-
-function firstPage() {
-    if (currentPage > 1) {
-        currentPage = 1;
-        enterPagingMode();
-        refreshLog();
-    }
-}
-
-function lastPage() {
-    if (currentPage < totalPages) {
-        currentPage = totalPages;
-        enterPagingMode();
-        refreshLog();
-    }
-}
-
-function updatePager() {
-    document.getElementById('page-info').textContent = '第 ' + currentPage + ' / ' + totalPages + ' 页';
-    document.getElementById('btn-page-prev').disabled = (currentPage <= 1);
-    document.getElementById('btn-page-next').disabled = (currentPage >= totalPages);
-    document.getElementById('btn-prev').disabled = (currentPage <= 1);
-    document.getElementById('btn-next').disabled = (currentPage >= totalPages);
-}
-
-var logBox = document.getElementById('log-area');
-logBox.addEventListener('scroll', function() {
-    if (isRealtime) {
-        var nearBottom = logBox.scrollHeight - logBox.scrollTop - logBox.clientHeight < 100;
-        if (!nearBottom) {
-            isRealtime = false;
-            enterPagingMode();
-            document.getElementById('mode-indicator').textContent = '👆 已停止跟随最新';
-        }
-    }
-    
-    if (scrollTimeout) clearTimeout(scrollTimeout);
-    scrollTimeout = setTimeout(function() {
-        userScrolling = false;
-    }, 500);
-    userScrolling = true;
-});
-
 startPoll();
 </script>
 

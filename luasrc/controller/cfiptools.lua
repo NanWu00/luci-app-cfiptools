@@ -9,7 +9,6 @@ function index()
     entry({"admin", "services", "cfiptools", "get_status"}, call("action_get_status"))
     entry({"admin", "services", "cfiptools", "log_view"}, call("action_log_view"))
     entry({"admin", "services", "cfiptools", "log_poll"}, call("action_log_poll"))
-    entry({"admin", "services", "cfiptools", "log_page"}, call("action_log_page"))
     entry({"admin", "services", "cfiptools", "clear_log"}, call("action_clear_log"))
     entry({"admin", "services", "cfiptools", "reset"}, call("action_reset"))
     entry({"admin", "services", "cfiptools", "read_file"}, call("action_read_file"))
@@ -135,77 +134,20 @@ function action_log_view()
     luci.template.render("cfiptools/log", { log_content = log_content })
 end
 
--- ================== 修好了：保留控制符的轮询 ==================
+-- ================== 终极修复：保留进度条，且绝对不误杀历史日志 ==================
 function action_log_poll()
     local log_file = "/var/log/cfiptools.log"
     local content = ""
     if nixio.fs.access(log_file) then
-        content = luci.sys.exec("tail -c 20000 " .. log_file .. " 2>/dev/null") or ""
+        -- 换回更稳定的 tail -n 1000，防止原先的 -c 截断中文字符导致前端 JSON 解析崩溃
+        content = luci.sys.exec("tail -n 1000 " .. log_file .. " 2>/dev/null") or ""
+        
+        -- 【核心清洗逻辑】：将 \r\n 统一替换为 \n，并剥离可能游离在字符串结尾的 \r
+        -- 彻底阻断前端 JS 将正常历史日志误判为进度条的可能
+        content = content:gsub("\r\n", "\n"):gsub("\r$", "")
     end
     luci.http.prepare_content("application/json")
     luci.http.write_json({ content = content })
-end
-
--- ================== 新增：分页日志接口 ==================
-function action_log_page()
-    local log_file = "/var/log/cfiptools.log"
-    local page = tonumber(luci.http.formvalue("page")) or 1
-    local pagesize = tonumber(luci.http.formvalue("pagesize")) or 50
-    if page < 1 then page = 1 end
-    if pagesize < 10 or pagesize > 200 then pagesize = 50 end
-    
-    local total_lines = 0
-    local content = ""
-    local has_more = false
-    
-    if nixio.fs.access(log_file) then
-        -- 计算总行数
-        total_lines = tonumber(luci.sys.exec("wc -l < " .. log_file .. " 2>/dev/null")) or 0
-        
-        -- 计算偏移量
-        local offset = (page - 1) * pagesize
-        local limit = pagesize + 1  -- 多取一行判断是否有更多
-        
-        -- 使用 tail + head 实现分页（倒序：最新的在前）
-        local cmd = string.format("tail -n %d %s 2>/dev/null | head -n %d | tac", 
-                                  offset + limit, log_file, limit)
-        local raw = luci.sys.exec(cmd)
-        
-        -- 分割行并反转（保持最新在前）
-        local lines = {}
-        for line in raw:gmatch("[^\r\n]+") do
-            table.insert(lines, line)
-        end
-        
-        -- 检查是否有更多数据
-        if #lines > pagesize then
-            has_more = true
-            table.remove(lines)  -- 移除多余的那行
-        end
-        
-        -- 反转数组使最新日志在前
-        local reversed = {}
-        for i = #lines, 1, -1 do
-            table.insert(reversed, lines[i])
-        end
-        
-        content = table.concat(reversed, "\n")
-        has_more = has_more or (offset + #lines < total_lines)
-    end
-    
-    luci.http.prepare_content("application/json")
-    luci.http.write_json({ 
-        content = content, 
-        page = page, 
-        pagesize = pagesize,
-        total = total_lines,
-        has_more = has_more
-    })
-end
-
-function action_clear_log()
-    luci.sys.exec(": > /var/log/cfiptools.log")
-    luci.http.redirect(luci.dispatcher.build_url("admin", "services", "cfiptools", "log_view"))
 end
 
 function action_reset()
