@@ -34,7 +34,7 @@ end
 
 <style>
 /* ============================================================
-   CFIPTools - 终极版 UI (深度融合 Argon 主题 + 精确复刻 HomeProxy)
+   CFIPTools - 终极版 UI
    ============================================================ */
 .cf-wrap { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--font-color, #2D3748); line-height: 1.5; }
 .cf-statusbar { background: var(--background-color, linear-gradient(135deg, #F0F4FF, #E8EDF5)); border: 1px solid var(--border-color, #DDE3F0); border-radius: 4px; padding: 10px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 38px; }
@@ -45,67 +45,15 @@ end
 .cf-status-info { font-size: 12px; color: #718096; margin-left: auto; text-align: right; line-height: 1.4; white-space: nowrap; }
 .cf-card { background: var(--background-color, #FFFFFF); border: 1px solid var(--border-color, #E2E8F0); border-radius: 4px; overflow: hidden; }
 
-/* 🌟 魔改版选项卡：精确复刻 HomeProxy 的灰块背景 + 粗底线 + 手机滑动支持 */
-.cf-tabs { 
-    display: flex !important;
-    flex-wrap: nowrap !important;
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch !important; 
-    scrollbar-width: none; 
-    padding: 0 16px 0 16px !important; 
-    gap: 4px;
-    border-bottom: 1px solid var(--border-color, #dee2e6); 
-    background: transparent; 
-}
+.cf-tabs { display: flex !important; flex-wrap: nowrap !important; overflow-x: auto !important; -webkit-overflow-scrolling: touch !important; scrollbar-width: none; padding: 0 16px 0 16px !important; gap: 4px; border-bottom: 1px solid var(--border-color, #dee2e6); background: transparent; }
 .cf-tabs::-webkit-scrollbar { display: none; }
-
-.cf-wrap .cf-tabs button.cf-tab { 
-    position: relative !important;
-    padding: 0 16px !important; 
-    height: 40px !important; 
-    cursor: pointer !important; 
-    font-size: 14px !important; 
-    font-weight: 400 !important; 
-    color: var(--font-color, #555) !important; 
-    border: none !important; 
-    background: rgba(0, 0, 0, 0.04) !important;
-    margin-bottom: 0 !important; 
-    transition: all .3s ease !important; 
-    white-space: nowrap !important; 
-    font-family: inherit !important; 
-    box-shadow: none !important;
-    border-radius: 2px 2px 0 0 !important; 
-    flex: 0 0 auto !important; 
-}
-
-.cf-wrap .cf-tabs button.cf-tab::after {
-    content: '' !important;
-    position: absolute !important;
-    bottom: 0 !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    width: 0 !important;
-    height: 3px !important; 
-    background-color: var(--primary, var(--primary-color, #4A6CF7)) !important;
-    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-}
-
-.cf-wrap .cf-tabs button.cf-tab:hover { 
-    background: rgba(0, 0, 0, 0.08) !important;
-    color: var(--primary, var(--primary-color, #4A6CF7)) !important; 
-}
-
+.cf-wrap .cf-tabs button.cf-tab { position: relative !important; padding: 0 16px !important; height: 40px !important; cursor: pointer !important; font-size: 14px !important; font-weight: 400 !important; color: var(--font-color, #555) !important; border: none !important; background: rgba(0, 0, 0, 0.04) !important; margin-bottom: 0 !important; transition: all .3s ease !important; white-space: nowrap !important; font-family: inherit !important; box-shadow: none !important; border-radius: 2px 2px 0 0 !important; flex: 0 0 auto !important; }
+.cf-wrap .cf-tabs button.cf-tab::after { content: '' !important; position: absolute !important; bottom: 0 !important; left: 50% !important; transform: translateX(-50%) !important; width: 0 !important; height: 3px !important; background-color: var(--primary, var(--primary-color, #4A6CF7)) !important; transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important; }
+.cf-wrap .cf-tabs button.cf-tab:hover { background: rgba(0, 0, 0, 0.08) !important; color: var(--primary, var(--primary-color, #4A6CF7)) !important; }
 .cf-wrap .cf-tabs button.cf-tab:hover::after { width: 100% !important; }
-
-.cf-wrap .cf-tabs button.cf-tab.active { 
-    background: var(--background-color, #FFFFFF) !important;
-    color: var(--primary, var(--primary-color, #4A6CF7)) !important; 
-    font-weight: 600 !important; 
-}
-
+.cf-wrap .cf-tabs button.cf-tab.active { background: var(--background-color, #FFFFFF) !important; color: var(--primary, var(--primary-color, #4A6CF7)) !important; font-weight: 600 !important; }
 .cf-wrap .cf-tabs button.cf-tab.active::after { width: 100% !important; }
 
-/* 剩下的内容区块和表单样式 */
 .cf-tab-body { padding: 24px 32px; }
 .cf-tab-content { display: none; }
 .cf-tab-content.active { display: block; }
@@ -114,18 +62,15 @@ end
 .cf-field-label { width: 160px; flex-shrink: 0; font-size: 14px; font-weight: 500; color: var(--font-color, #2D3748); line-height: 36px; padding-right: 12px; }
 .cf-field-input { flex: 1; max-width: 500px; }
 .cf-field-input select, .cf-field-input input[type="text"], .cf-field-input input[type="password"] { width: 100%; height: 36px; padding: 0 10px; background: transparent; border: 1px solid var(--border-color, #CBD5E0); border-radius: 4px; color: var(--font-color, #2D3748); font-size: 13px; font-weight: 400; box-sizing: border-box; transition: border-color .15s, box-shadow .15s; font-family: inherit; }
-.cf-field-input select { height: 36px; padding: 0 10px; }
 .cf-field-input select:focus, .cf-field-input input[type="text"]:focus, .cf-field-input input[type="password"]:focus { border-color: var(--primary, var(--primary-color, #4A6CF7)) !important; box-shadow: 0 0 0 2px rgba(0,0,0,0.05); outline: none; }
 .cf-field-input input::placeholder { color: #A0AEC0; }
 .cf-field-input input.cf-sm { width: 100px; }
 .cf-field-input input.cf-md { width: 200px; }
 .cf-help { font-size: 12px; color: #718096; font-weight: 400; margin-top: 4px; }
 .cf-inline { display: flex; gap: 6px; align-items: center; }
-.cf-inline select { width: auto; min-width: 80px; }
 .cf-cond { display: none; }
 .cf-cond.show { display: block; }
 
-/* 复选框强行覆盖 */
 input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; border: 1px solid var(--border-color, #CBD5E0); border-radius: 3px; background: transparent; cursor: pointer; position: relative; flex-shrink: 0; margin: 0; padding: 0; transition: background .15s, border-color .15s; }
 input[type="checkbox"]:checked { background: var(--primary, var(--primary-color, #4A6CF7)) !important; border-color: var(--primary, var(--primary-color, #4A6CF7)) !important; }
 input[type="checkbox"]:checked::after { content: ''; position: absolute; left: 4px; top: 1px; width: 5px; height: 9px; border: solid #FFFFFF; border-width: 0 2px 2px 0; transform: rotate(45deg); }
@@ -135,7 +80,6 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
 .cf-cb-item span { font-weight: 400; font-size: 13px; color: var(--font-color, #2D3748); cursor: pointer; line-height: 1; }
 .cf-cb-inline, .cf-cb-row { line-height: 36px; white-space: nowrap; }
 
-/* 日志和文件读取框 */
 .cf-log-bar { display: flex; gap: 8px; margin-bottom: 8px; }
 .cf-log-box { background: #1A1A2E; color: #E0E0E0; border: 1px solid #334; border-radius: 4px; padding: 12px; font-family: 'Consolas','Courier New',monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; max-height: 500px; overflow-y: auto; min-height: 200px; }
 .cf-log-box:empty::after { content: '暂无日志'; color: #888; }
@@ -150,27 +94,18 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
 .cf-float-copy.copied { background: var(--success-color, #2DCE89) !important; color: #FFFFFF !important; border-color: var(--success-color, #2DCE89) !important; }
 .cf-file-content { padding-top: 4px; }
 
-/* 🌟 按钮系列统一调度 */
-.cf-btn-copy { font-size: 12px; padding: 4px 12px; background: #EDF2F7; color: var(--primary, var(--primary-color, #4A6CF7)) !important; border: 1px solid var(--border-color, #CBD5E0); border-radius: 4px; cursor: pointer; white-space: nowrap; line-height: 1.4; transition: background .15s; font-family: inherit; }
-.cf-btn-copy:hover { background: #E2E8F0; }
-.cf-btn-copy.copied { background: var(--success-color, #2DCE89) !important; color: #FFFFFF !important; border-color: var(--success-color, #2DCE89) !important; }
-
 .cf-save-bar { margin-top: 0; padding: 12px 32px 16px 32px; display: flex; gap: 8px; align-items: center; }
 .cf-btn { border: none; padding: 8px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 500; white-space: nowrap; line-height: 1.4; transition: all .2s; font-family: inherit; }
 .cf-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 #btn-action { background: var(--primary, var(--primary-color, #4A6CF7)) !important; color: #FFFFFF !important; box-shadow: 0 4px 6px rgba(0,0,0,.1); }
 #btn-action:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
-
 #btn-action.cf-btn-stop { background: var(--danger-color, #F5365C) !important; color: #FFFFFF !important; }
 #btn-action.cf-btn-stop:hover:not(:disabled) { filter: brightness(1.1); }
-
 .cf-btn-outline { background: transparent !important; color: var(--primary, var(--primary-color, #4A6CF7)) !important; border: 1px solid var(--primary, var(--primary-color, #4A6CF7)) !important; }
 .cf-btn-outline:hover:not(:disabled) { background: var(--primary, var(--primary-color, #4A6CF7)) !important; color: #FFFFFF !important; }
-
 .cf-btn-save { background: var(--primary, var(--primary-color, #4A6CF7)) !important; color: #FFFFFF !important; box-shadow: 0 4px 6px rgba(0,0,0,.1); }
 .cf-btn-save:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
-
 .cf-btn-danger { background: transparent !important; color: var(--primary, var(--primary-color, #4A6CF7)) !important; border: 1px solid var(--primary, var(--primary-color, #4A6CF7)) !important; }
 .cf-btn-danger:hover:not(:disabled) { background: var(--primary, var(--primary-color, #4A6CF7)) !important; color: #FFFFFF !important; }
 </style>
@@ -196,7 +131,6 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
             <button class="cf-tab" onclick="switchTab('log')">查看日志</button>
         </div>
 
-        <!-- 增加 onsubmit="updateHiddenCron()" 确保常规保存时也能准确传递 cron 表达式 -->
         <form method="post" action="<%=luci.dispatcher.build_url('admin','services','cfiptools','save')%>" onsubmit="updateHiddenCron()">
         <div class="cf-tab-body">
             <div class="cf-tab-content active" id="tab-nodes">
@@ -227,10 +161,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
                     <div class="cf-field-label">定时测速</div>
                     <div class="cf-field-input">
                         <div class="cf-cb-inline">
-                            <div class="cf-cb-item">
-                                <input type="checkbox" name="enabled" value="1" id="opt_enabled" <%=checked("enabled")%>>
-                                <span>启用自动定时运行</span>
-                            </div>
+                            <div class="cf-cb-item"><input type="checkbox" name="enabled" value="1" id="opt_enabled" <%=checked("enabled")%>><span>启用自动定时运行</span></div>
                         </div>
                     </div>
                 </div>
@@ -239,7 +170,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
                         <div class="cf-field-label">执行频率</div>
                         <div class="cf-field-input">
                             <select name="cron_interval" id="sel_cron_interval" onchange="updateHiddenCron()">
-							    <option value="30m" <%=cron_interval=="30m" and "selected" or ""%>>每 30 分钟</option>
+                                <option value="30m" <%=cron_interval=="30m" and "selected" or ""%>>每 30 分钟</option>
                                 <option value="1" <%=cron_interval=="1" and "selected" or ""%>>每 1 小时</option>
                                 <option value="2" <%=cron_interval=="2" and "selected" or ""%>>每 2 小时</option>
                                 <option value="4" <%=cron_interval=="4" and "selected" or ""%>>每 4 小时</option>
@@ -257,10 +188,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
                     <div class="cf-field-label">输入源</div>
                     <div class="cf-field-input">
                         <div class="cf-cb-inline">
-                            <div class="cf-cb-item">
-                                <input type="checkbox" name="download_input" value="1" id="opt_dl" <%=checked("download_input")%>>
-                                <span>从网络下载 IP 列表</span>
-                            </div>
+                            <div class="cf-cb-item"><input type="checkbox" name="download_input" value="1" id="opt_dl" <%=checked("download_input")%>><span>从网络下载 IP 列表</span></div>
                         </div>
                     </div>
                 </div>
@@ -355,7 +283,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
                 </div>
                 <div class="cf-field">
                     <div class="cf-field-label">快速标签</div>
-                    <div class="cf-field-input"><input type="text" name="fast_label" class="cf-sm" value="<%=get("fast_label","优选高速")%>"></div>
+                    <div class="cf-field-input"><input type="text" name="fast_label" class="cf-sm" value="<%=get("fast_label","⚡")%>"></div>
                 </div>
                 <div class="cf-field">
                     <div class="cf-field-label">地点 / 频率</div>
@@ -385,10 +313,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
                     <div class="cf-field-label">GitHub 推送</div>
                     <div class="cf-field-input">
                         <div class="cf-cb-inline">
-                            <div class="cf-cb-item">
-                                <input type="checkbox" name="github_upload_enabled" value="1" id="opt_gh" <%=checked("github_upload_enabled")%>>
-                                <span>启用自动推送至仓库</span>
-                            </div>
+                            <div class="cf-cb-item"><input type="checkbox" name="github_upload_enabled" value="1" id="opt_gh" <%=checked("github_upload_enabled")%>><span>启用自动推送至仓库</span></div>
                         </div>
                     </div>
                 </div>
@@ -500,32 +425,61 @@ function startLogStream() {
     fetchLogPoll();
     logSource=setInterval(fetchLogPoll,1500);
 }
+
 function fetchLogPoll() {
-    var box=document.getElementById('log-content');
-    var sel=window.getSelection();
-    if(sel && !sel.isCollapsed && sel.rangeCount>0){
-        var r=sel.getRangeAt(0);
-        if(box.contains(r.commonAncestorContainer)) return;
+    var box = document.getElementById('log-content');
+    var sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
+        var r = sel.getRangeAt(0);
+        if (box.contains(r.commonAncestorContainer)) return;
     }
-    fetch('<%=luci.dispatcher.build_url("admin","services","cfiptools","log_poll")%>')
-        .then(function(r){return r.json();})
-        .then(function(d){
-            if(d.content!==undefined && d.content!==null){
-                if(d.content===box._lastContent) return;
-                var wasAtTop=box.scrollTop<=5;
-                
-                // 核心魔法：使用正则吃掉 \r 之前的废弃字符串，完美模拟终端覆盖进度条效果
-                var cleanContent = d.content.replace(/.*[\r](?!\n)/g, '');
-                
-                box.textContent=cleanContent;
-                box._lastContent=d.content; // 缓存依然保留原始数据做比对，防止频繁 DOM 刷新
-                if(wasAtTop) box.scrollTop=0;
+
+    var url = '<%=luci.dispatcher.build_url("admin","services","cfiptools","log_poll")%>' + '?t=' + new Date().getTime();
+
+    fetch(url)
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.content !== undefined && d.content !== null) {
+                if (d.content === box._lastContent) return;
+                var wasAtTop = box.scrollTop <= 5;
+
+                // 1. 按标准的换行符 \n 把日志劈开成数组
+                var lines = d.content.split('\n');
+
+                // 2. 核心魔法：处理进度条残影
+                for (var i = 0; i < lines.length; i++) {
+                    if (lines[i].indexOf('\r') !== -1) {
+                        // 如果这一行里混入了 \r，说明 Python 疯狂刷新了进度
+                        // 我们用 \r 再次劈开，只保留最后一段（即最新进度）
+                        var parts = lines[i].split('\r');
+                        lines[i] = parts[parts.length - 1]; 
+                    }
+                }
+
+                // 3. 过滤掉无用的空行
+                var cleanLines = [];
+                for (var j = 0; j < lines.length; j++) {
+                    if (lines[j].trim() !== '') {
+                        cleanLines.push(lines[j]);
+                    }
+                }
+
+                // 4. 逆向需求实现：将整理干净的数组整体反转，让最新的日志冲到第 0 位！
+                var finalContent = cleanLines.reverse().join('\n');
+
+                box.textContent = finalContent;
+                box._lastContent = d.content;
+
+                if (wasAtTop) {
+                    box.scrollTop = 0;
+                }
             }
         })
-        .catch(function(){
-            if(!box.textContent)box.textContent='连接断开';
+        .catch(function() {
+            if (!box.textContent) box.textContent = '连接断开...';
         });
 }
+
 function stopLogStream() {
     if(logSource){clearInterval(logSource);logSource=null;}
     var box=document.getElementById('log-content');
@@ -582,20 +536,13 @@ function saveAndTest() {
     updateHiddenCron();
     var f=document.querySelector('form');
     var fd=new URLSearchParams(new FormData(f));
-    
-    // 注入 AJAX 标识符，让后端知道不需要返回整个 HTML 网页，仅返回 JSON 即可
     fd.append('ajax', '1');
-    
     var btn=document.getElementById('btn-action');
     btn.disabled=true; btn.textContent='保存中…';
     fetch('<%=luci.dispatcher.build_url("admin","services","cfiptools","save")%>',{method:'POST',body:fd})
         .then(function(){
             startTest();
-            // 不再刷新页面，实现真正的无感极速体验
-            setTimeout(function(){ 
-                btn.disabled=false; 
-                pollStatus(); 
-            }, 800);
+            setTimeout(function(){ btn.disabled=false; pollStatus(); }, 800);
         })
         .catch(function(){
             alert('保存失败，请重试');
