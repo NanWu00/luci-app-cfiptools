@@ -25,7 +25,8 @@ function action_save()
         cursor:set("cfiptools", "config", name, val or "0")
     end
 
-    local fields = { "cron_schedule", "input_url", "download_timeout", "input_file", "full_output_file", "best_output_file", "tcp_timeout_ms", "tcp_workers", "speed_timeout_sec", "speed_workers", "min_speed_mbps", "top_per_region", "max_nodes", "fast_label", "readme_file", "raw_base_url", "test_location", "update_frequency", "github_repo", "github_branch", "github_token", "github_message", "git_http_proxy", "git_https_proxy", "bypass_proxy_method", "pre_test_command", "post_test_command" }
+    -- 增加了 max_latency_ms 和 speed_test_count
+    local fields = { "cron_schedule", "input_url", "download_timeout", "input_file", "full_output_file", "best_output_file", "tcp_timeout_ms", "tcp_workers", "speed_timeout_sec", "speed_workers", "min_speed_mbps", "max_latency_ms", "speed_test_count", "top_per_region", "max_nodes", "fast_label", "readme_file", "raw_base_url", "test_location", "update_frequency", "github_repo", "github_branch", "github_token", "github_message", "git_http_proxy", "git_https_proxy", "bypass_proxy_method", "pre_test_command", "post_test_command" }
 
     for _, name in ipairs(fields) do
         local val = luci.http.formvalue(name)
@@ -47,23 +48,6 @@ function action_save()
 end
 
 function action_start_test()
-    local pid_file = "/var/run/cfiptools.pid"
-    if nixio.fs.access(pid_file) then
-        local pid = tonumber(luci.sys.exec("cat " .. pid_file))
-        if pid and luci.sys.process.signal(pid, 0) then
-            luci.http.prepare_content("application/json")
-            luci.http.write_json({status = "already_running", message = "A test is already running"})
-            return
-        end
-    end
-    luci.sys.exec("/usr/share/cfiptools/run.sh </dev/null >/dev/null 2>&1 &")
-    luci.http.prepare_content("application/json")
-    luci.http.write_json({status = "started", message = "Test started"})
-end
-
--- ================== 严谨版：启动逻辑（带多开检测） ==================
-function action_start_test()
-    -- 检查是否已有 update.py 在运行，防止多开
     local is_running = luci.sys.exec("pgrep -f 'update.py'")
     if is_running ~= "" then
         luci.http.prepare_content("application/json")
@@ -71,18 +55,14 @@ function action_start_test()
         return
     end
 
-    -- 启动新进程
     luci.sys.exec("/usr/share/cfiptools/run.sh </dev/null >/dev/null 2>&1 &")
     luci.http.prepare_content("application/json")
     luci.http.write_json({status = "started", message = "测试启动成功"})
 end
 
--- ================== 最终版：带日志反馈的停止逻辑 ==================
 function action_stop_test()
-    -- 1. 记录动作到日志，让用户知道操作已触发
     luci.sys.exec("echo '--- [INFO] 正在尝试强制终止任务... ---' >> /var/log/cfiptools.log")
     
-    -- 2. 执行 PID 迭代杀法
     local pids = luci.sys.exec("pgrep -f 'cfiptools' ; pgrep -f 'update.py' ; pgrep -f 'curl'"):gsub("\n", " ")
     if pids ~= "" then
         for pid in pids:gmatch("%S+") do
@@ -91,10 +71,8 @@ function action_stop_test()
     end
     luci.sys.exec("killall -9 run.sh 2>/dev/null")
     
-    -- 3. 记录停止结果
     luci.sys.exec("echo '--- [STOPPED] 任务已强制中断 ---' >> /var/log/cfiptools.log")
     
-    -- 4. 清理残留与状态
     luci.sys.exec("rm -f /var/run/cfiptools.pid 2>/dev/null")
     luci.sys.exec("echo '空闲' > /var/run/cfiptools.status 2>/dev/null")
     
@@ -134,20 +112,20 @@ function action_log_view()
     luci.template.render("cfiptools/log", { log_content = log_content })
 end
 
--- ================== 终极修复：保留进度条，且绝对不误杀历史日志 ==================
 function action_log_poll()
     local log_file = "/var/log/cfiptools.log"
     local content = ""
     if nixio.fs.access(log_file) then
-        -- 换回更稳定的 tail -n 1000，防止原先的 -c 截断中文字符导致前端 JSON 解析崩溃
         content = luci.sys.exec("tail -n 1000 " .. log_file .. " 2>/dev/null") or ""
-        
-        -- 【核心清洗逻辑】：将 \r\n 统一替换为 \n，并剥离可能游离在字符串结尾的 \r
-        -- 彻底阻断前端 JS 将正常历史日志误判为进度条的可能
         content = content:gsub("\r\n", "\n"):gsub("\r$", "")
     end
     luci.http.prepare_content("application/json")
     luci.http.write_json({ content = content })
+end
+
+function action_clear_log()
+    luci.sys.exec(": > /var/log/cfiptools.log")
+    luci.http.redirect(luci.dispatcher.build_url("admin", "services", "cfiptools", "log_view"))
 end
 
 function action_reset()
@@ -166,12 +144,13 @@ function action_reset()
         download_input = "1", download_timeout = "30", input_file = "/usr/share/cfiptools/ips.txt",
         full_output_file = "/usr/share/cfiptools/full_ips.txt", best_output_file = "/usr/share/cfiptools/best_ips.txt",
         update_readme = "1", readme_file = "/usr/share/cfiptools/README.MD", raw_base_url = "",
-        test_location = "", update_frequency = "", tcp_timeout_ms = "500", tcp_workers = "200",
-        speed_timeout_sec = "6", speed_workers = "5", min_speed_mbps = "16", top_per_region = "10",
+        test_location = "", update_frequency = "", tcp_timeout_ms = "1500", tcp_workers = "200",
+        speed_timeout_sec = "6", speed_workers = "5", min_speed_mbps = "16", 
+        max_latency_ms = "0", speed_test_count = "1", top_per_region = "10",
         max_nodes = "0", show_latency = "1", show_bandwidth = "1", fast_label = "⚡",
         numbered_regions = "1", verbose = "0", github_upload_enabled = "0", github_repo = "",
         github_branch = "main", github_token = "", github_message = "Update IP and README",
-        git_http_proxy = "", git_https_proxy = "", bypass_proxy_method = "nftables",
+        git_http_proxy = "", git_https_proxy = "", bypass_proxy_method = "env",
         pre_test_command = "", post_test_command = "", last_run = "", last_result = ""
     }
 

@@ -13,7 +13,6 @@ set_status() { echo "$1" > "$STATUS_FILE"; log "STATUS: $1"; }
 
 load_uci() {
     local section="config"
-    # 如果 config 节不存在，尝试获取第一个匿名节
     if ! uci -q get cfiptools.config >/dev/null 2>&1; then
         section=$(uci -q show cfiptools | head -n1 | cut -d. -f2 | cut -d= -f1)
         [ -z "$section" ] && section="config"
@@ -38,6 +37,8 @@ load_uci() {
     CFG_speed_timeout_sec=$(uci_get speed_timeout_sec "6")
     CFG_speed_workers=$(uci_get speed_workers "5")
     CFG_min_speed_mbps=$(uci_get min_speed_mbps "16")
+    CFG_max_latency_ms=$(uci_get max_latency_ms "0")
+    CFG_speed_test_count=$(uci_get speed_test_count "1")
     CFG_top_per_region=$(uci_get top_per_region "10")
     CFG_max_nodes=$(uci_get max_nodes "0")
     CFG_show_latency=$(uci_get show_latency "1")
@@ -124,7 +125,6 @@ run_post_command() {
 
 run_python() {
     cd "$DATA_DIR"
-    # -u 强制取消 Python 的全缓冲，实时写入日志
     python3 -u "$DATA_DIR/update.py" "$@" >> "$LOG_FILE" 2>&1
 }
 
@@ -189,6 +189,8 @@ run_test() {
     set -- "$@" "--speed-timeout" "${CFG_speed_timeout_sec:-6.0}"
     set -- "$@" "--speed-workers" "${CFG_speed_workers:-5}"
     set -- "$@" "--min-speed" "${CFG_min_speed_mbps:-16}"
+    set -- "$@" "--max-latency" "${CFG_max_latency_ms:-0}"
+    set -- "$@" "--speed-count" "${CFG_speed_test_count:-1}"
     set -- "$@" "--top" "${CFG_top_per_region:-10}"
     set -- "$@" "--show-latency" "${CFG_show_latency:-1}"
     set -- "$@" "--show-mbps" "${CFG_show_bandwidth:-1}"
@@ -197,7 +199,9 @@ run_test() {
     if [ "${CFG_verbose:-0}" = "1" ]; then set -- "$@" "--verbose"; fi
     set -- "$@" "--fast-label" "${CFG_fast_label:-优选高速}"
 
-    set_status "TCP延迟测速"
+    # 修改前是 set_status "TCP延迟测速"
+    # 现在改为"引擎启动中"，随后 Python 引擎接管状态输出
+    set_status "引擎启动中"
     log "Starting speed test..."
     if run_python "$@"; then
         log "update.py finished successfully"
@@ -209,14 +213,9 @@ run_test() {
         exit $exit_code
     fi
     
-    # ================= [核心防卡死：清理规则并预留喘息时间] =================
-    # 1. 测速完成后，立刻解除防火墙绕过规则，让流量回归代理
     cleanup_proxy_bypass
-    
-    # 2. 给软路由的透明代理内核（Clash/HomeProxy）喘息时间，防止并发导致连接耗尽报错
     log "等待 3 秒让代理核心恢复网络环境..."
     sleep 3
-    # ========================================================================
 
     if [ "${CFG_update_readme:-0}" = "1" ]; then
         set_status "生成README"
@@ -256,7 +255,6 @@ run_test() {
     log "All tasks completed"
 
     run_post_command
-    # 清理操作将由 trap 自动接管
 }
 
 run_test

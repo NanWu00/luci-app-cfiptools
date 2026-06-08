@@ -69,6 +69,8 @@ class AppConfig:
     speed_process_buffer: float
     speed_workers: int
     min_speed_mbps: float
+    max_latency_ms: float
+    speed_test_count: int
     top_per_region: int
     verbose: bool
     numbered_regions: bool
@@ -108,6 +110,8 @@ def parse_args() -> AppConfig:
     parser.add_argument("--speed-process-buffer", type=float, default=DEFAULT_SPEED_PROCESS_BUFFER)
     parser.add_argument("--speed-workers", type=int, default=DEFAULT_SPEED_WORKERS)
     parser.add_argument("--min-speed", type=float, default=DEFAULT_MIN_SPEED_MBPS)
+    parser.add_argument("--max-latency", type=float, default=0.0)
+    parser.add_argument("--speed-count", type=int, default=1)
     parser.add_argument("--top", type=int, default=DEFAULT_TOP_PER_REGION)
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--numbered", dest="numbered_regions", action="store_true", default=False)
@@ -121,7 +125,8 @@ def parse_args() -> AppConfig:
         input_file=args.input, full_output_file=args.output, best_output_file=args.best_output,
         tcp_timeout=args.tcp_timeout, tcp_workers=args.tcp_workers, speed_timeout=args.speed_timeout,
         speed_process_buffer=args.speed_process_buffer, speed_workers=args.speed_workers,
-        min_speed_mbps=args.min_speed, top_per_region=args.top, verbose=args.verbose,
+        min_speed_mbps=args.min_speed, max_latency_ms=args.max_latency, speed_test_count=args.speed_count,
+        top_per_region=args.top, verbose=args.verbose,
         numbered_regions=args.numbered_regions, show_latency=parse_bool(args.show_latency),
         show_mbps=parse_bool(args.show_mbps), fast_label=args.fast_label, input_url=args.input_url
     )
@@ -150,12 +155,19 @@ def load_nodes(path: Path) -> list[Node]:
 def positive_worker_count(req: int, total: int) -> int: return max(1, min(max(1, req), max(1, total)))
 
 def print_progress(task_name: str, completed: int, total: int, bar_length: int = 30) -> None:
-    """生成并打印带百分比的字符画进度条"""
     if total <= 0: return
     percent = completed / total
     filled = int(bar_length * percent)
     bar = '█' * filled + '░' * (bar_length - filled)
     print(f"\r{task_name} [{bar}] {percent*100:.1f}% ({completed}/{total})", end='', flush=True)
+
+# 【核心功能】：跨进程状态通信器，直接修改 LuCI 状态栏
+def set_status(text: str) -> None:
+    try:
+        with open("/var/run/cfiptools.status", "w", encoding="utf-8") as f:
+            f.write(f"{text}\n")
+    except Exception:
+        pass
 
 async def tcping(node: Node, timeout: float) -> float | None:
     start = time.perf_counter()
@@ -170,43 +182,65 @@ async def tcping(node: Node, timeout: float) -> float | None:
             try: await writer.wait_closed()
             except Exception: pass
 
-async def run_tcp_tests(nodes: Sequence[Node], *, timeout: float, workers: int, verbose: bool) -> list[TcpResult]:
-    queue, results = asyncio.Queue(), []
-    total = len(nodes)
-    print_progress("TCP 测速中", 0, total)
-    completed = 0
+async def run_tcp_tests(nodes: Sequence[Node], *, timeout: float, workers: int, test_count: int, verbose: bool) -> list[TcpResult]:
+    total_latencies = defaultdict(float)
+    successful_counts = defaultdict(int)
+    
+    # 批次循环执行测速，并在开始时触发状态与日志更新
+    for i in range(test_count):
+        iteration_str = f"{i+1}/{test_count}"
+        status_msg = f"第{iteration_str}次 TCP测速"
+        
+        set_status(status_msg)
+        print(f"--- [INFO] 开始 {status_msg} ---")
+        
+        queue = asyncio.Queue()
+        total = len(nodes)
+        task_name = f"TCP测速({iteration_str})"
+        print_progress(task_name, 0, total)
+        completed = 0
 
-    async def worker():
-        nonlocal completed
-        while True:
-            node = await queue.get()
-            if node is None:
-                queue.task_done()  # 必须告诉队列毒药已消耗，防止死锁
-                return
-            try:
-                latency = await tcping(node, timeout)
-                if latency is not None:
-                    results.append(TcpResult(node=node, latency_ms=latency))
-                    if verbose: print(f"\n[LAT] {node.raw} -> {latency} ms")
-            except Exception as e:
-                if verbose: print(f"\n[LAT Error] {node.raw} -> {e}")
-            finally:
-                completed += 1
-                print_progress("TCP 测速中", completed, total)
-                queue.task_done()
+        async def worker():
+            nonlocal completed
+            while True:
+                node = await queue.get()
+                if node is None:
+                    queue.task_done()
+                    return
+                try:
+                    latency = await tcping(node, timeout)
+                    if latency is not None:
+                        total_latencies[node] += latency
+                        successful_counts[node] += 1
+                        if verbose: print(f"\n[LAT] {node.raw} -> {latency} ms")
+                except Exception as e:
+                    if verbose: print(f"\n[LAT Error] {node.raw} -> {e}")
+                finally:
+                    completed += 1
+                    print_progress(task_name, completed, total)
+                    queue.task_done()
 
-    tasks = [asyncio.create_task(worker()) for _ in range(positive_worker_count(workers, len(nodes)))]
-    for node in nodes: queue.put_nowait(node)
-    for _ in tasks: queue.put_nowait(None)
-    await queue.join()
-    await asyncio.gather(*tasks)
-    print()
+        tasks = [asyncio.create_task(worker()) for _ in range(positive_worker_count(workers, len(nodes)))]
+        for node in nodes: queue.put_nowait(node)
+        for _ in tasks: queue.put_nowait(None)
+        await queue.join()
+        await asyncio.gather(*tasks)
+        print()
+        
+    results = []
+    for node in nodes:
+        if successful_counts[node] > 0:
+            avg_lat = round(total_latencies[node] / successful_counts[node], 2)
+            results.append(TcpResult(node=node, latency_ms=avg_lat))
     return results
 
-def select_candidates(results: Iterable[TcpResult], top_per_region: int) -> list[TcpResult]:
+def select_candidates(results: Iterable[TcpResult], top_per_region: int, max_latency: float) -> list[TcpResult]:
     groups = defaultdict(list)
     limit = max(1, top_per_region)
     for index, result in enumerate(results):
+        if max_latency > 0 and result.latency_ms > max_latency:
+            continue
+            
         heap = groups[result.node.region]
         item = (-result.latency_ms, -index, result)
         if len(heap) < limit: heapq.heappush(heap, item)
@@ -245,43 +279,57 @@ async def measure_speed_async(node: Node, timeout: float, process_buffer: float)
         if proc:
             try: 
                 proc.kill()
-                await proc.wait()  # 彻底回收僵尸进程
+                await proc.wait()
             except OSError: pass
         return 0.0
 
-async def run_speed_tests(candidates: Sequence[TcpResult], *, timeout: float, process_buffer: float, workers: int, min_speed: float, verbose: bool) -> list[SpeedResult]:
-    queue, results = asyncio.Queue(), []
-    total = len(candidates)
-    print_progress("下载测速中", 0, total)
-    completed = 0
+async def run_speed_tests(candidates: Sequence[TcpResult], *, timeout: float, process_buffer: float, workers: int, min_speed: float, test_count: int, verbose: bool) -> list[SpeedResult]:
+    total_speeds = defaultdict(float)
+    
+    # 批次循环下载测速，让所有节点齐头并进
+    for i in range(test_count):
+        iteration_str = f"{i+1}/{test_count}"
+        status_msg = f"第{iteration_str}次 下载测速"
+        
+        set_status(status_msg)
+        print(f"--- [INFO] 开始 {status_msg} ---")
+        
+        queue = asyncio.Queue()
+        total = len(candidates)
+        task_name = f"下载测速({iteration_str})"
+        print_progress(task_name, 0, total)
+        completed = 0
 
-    async def worker():
-        nonlocal completed
-        while True:
-            candidate = await queue.get()
-            if candidate is None:
-                queue.task_done()  # 必须告诉队列毒药已消耗，防止死锁
-                return
-            try:
-                speed = await measure_speed_async(candidate.node, timeout, process_buffer)
-                result = SpeedResult(node=candidate.node, latency_ms=candidate.latency_ms, speed_mbps=speed, is_fast=speed > min_speed)
-                results.append(result)
-                if verbose:
-                    status = "FAST" if result.is_fast else "NORMAL"
-                    print(f"\n[SPEED] {candidate.node.raw} -> {speed} Mbps {status}")
-            except Exception as e:
-                if verbose: print(f"\n[SPEED Error] {candidate.node.raw} -> {e}")
-            finally:
-                completed += 1
-                print_progress("下载测速中", completed, total)
-                queue.task_done()
+        async def worker():
+            nonlocal completed
+            while True:
+                candidate = await queue.get()
+                if candidate is None:
+                    queue.task_done()
+                    return
+                try:
+                    speed = await measure_speed_async(candidate.node, timeout, process_buffer)
+                    total_speeds[candidate.node] += speed
+                    if verbose: print(f"\n[SPEED] {candidate.node.raw} -> {speed} Mbps")
+                except Exception as e:
+                    if verbose: print(f"\n[SPEED Error] {candidate.node.raw} -> {e}")
+                finally:
+                    completed += 1
+                    print_progress(task_name, completed, total)
+                    queue.task_done()
 
-    tasks = [asyncio.create_task(worker()) for _ in range(positive_worker_count(workers, len(candidates)))]
-    for candidate in candidates: queue.put_nowait(candidate)
-    for _ in tasks: queue.put_nowait(None)
-    await queue.join()
-    await asyncio.gather(*tasks)
-    print()
+        tasks = [asyncio.create_task(worker()) for _ in range(positive_worker_count(workers, len(candidates)))]
+        for cand in candidates: queue.put_nowait(cand)
+        for _ in tasks: queue.put_nowait(None)
+        await queue.join()
+        await asyncio.gather(*tasks)
+        print()
+        
+    results = []
+    for cand in candidates:
+        avg_spd = round(total_speeds[cand.node] / test_count, 2) if test_count > 0 else 0.0
+        results.append(SpeedResult(node=cand.node, latency_ms=cand.latency_ms, speed_mbps=avg_spd, is_fast=avg_spd > min_speed))
+        
     results.sort(key=lambda item: (item.node.region, item.latency_ms, -item.speed_mbps))
     return results
 
@@ -317,7 +365,7 @@ async def supplement_my_results(best_results: Sequence[SpeedResult], tcp_results
     if my_count > MY_SUPPLEMENT_TRIGGER_COUNT: return results
     my_candidates = [result for result in tcp_results if is_region(result.node, MY_REGION)]
     if not my_candidates: return results
-    tested_my_results = await run_speed_tests(my_candidates, timeout=config.speed_timeout, process_buffer=config.speed_process_buffer, workers=config.speed_workers, min_speed=config.min_speed_mbps, verbose=config.verbose)
+    tested_my_results = await run_speed_tests(my_candidates, timeout=config.speed_timeout, process_buffer=config.speed_process_buffer, workers=config.speed_workers, min_speed=config.min_speed_mbps, test_count=config.speed_test_count, verbose=config.verbose)
     existing_nodes = {node_key(result.node) for result in results}
     additions = [result for result in tested_my_results if node_key(result.node) not in existing_nodes and result.speed_mbps > 0]
     additions.sort(key=lambda item: (-item.speed_mbps, item.latency_ms, item.node.ip, item.node.port))
@@ -335,10 +383,11 @@ async def run(config: AppConfig) -> int:
     except FileNotFoundError as exc: print(f"ERROR: {exc}"); return 1
     if not nodes: print(f"ERROR: no valid nodes found in {config.input_file}"); return 1
 
-    tcp_results = await run_tcp_tests(nodes, timeout=config.tcp_timeout, workers=config.tcp_workers, verbose=config.verbose)
-    candidates = select_candidates(tcp_results, config.top_per_region)
+    tcp_results = await run_tcp_tests(nodes, timeout=config.tcp_timeout, workers=config.tcp_workers, test_count=config.speed_test_count, verbose=config.verbose)
+    
+    candidates = select_candidates(tcp_results, config.top_per_region, config.max_latency_ms)
 
-    speed_results = await run_speed_tests(candidates, timeout=config.speed_timeout, process_buffer=config.speed_process_buffer, workers=config.speed_workers, min_speed=config.min_speed_mbps, verbose=config.verbose) if candidates else []
+    speed_results = await run_speed_tests(candidates, timeout=config.speed_timeout, process_buffer=config.speed_process_buffer, workers=config.speed_workers, min_speed=config.min_speed_mbps, test_count=config.speed_test_count, verbose=config.verbose) if candidates else []
 
     best_results = await supplement_my_results(filter_fast_results(speed_results), tcp_results, config)
     write_results(config.full_output_file, speed_results, config.numbered_regions, show_latency=config.show_latency, show_mbps=config.show_mbps, fast_label=config.fast_label)
