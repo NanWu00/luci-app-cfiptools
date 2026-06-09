@@ -25,8 +25,7 @@ function action_save()
         cursor:set("cfiptools", "config", name, val or "0")
     end
 
-    -- 增加了 max_latency_ms 和 speed_test_count
-    local fields = { "cron_schedule", "input_url", "download_timeout", "input_file", "full_output_file", "best_output_file", "tcp_timeout_ms", "tcp_workers", "speed_timeout_sec", "speed_workers", "min_speed_mbps", "max_latency_ms", "speed_test_count", "top_per_region", "max_nodes", "fast_label", "readme_file", "raw_base_url", "test_location", "update_frequency", "github_repo", "github_branch", "github_token", "github_message", "git_http_proxy", "git_https_proxy", "bypass_proxy_method", "pre_test_command", "post_test_command" }
+    local fields = { "cron_schedule", "input_url", "download_timeout", "input_file", "full_output_file", "best_output_file", "tcp_timeout_ms", "tcp_workers", "speed_timeout_sec", "speed_workers", "min_speed_mbps", "max_latency_ms", "strict_tcp_count", "speed_test_count", "top_per_region", "max_nodes", "fast_label", "readme_file", "raw_base_url", "test_location", "update_frequency", "github_repo", "github_branch", "github_token", "github_message", "git_http_proxy", "git_https_proxy", "bypass_proxy_method", "pre_test_command", "post_test_command" }
 
     for _, name in ipairs(fields) do
         local val = luci.http.formvalue(name)
@@ -37,7 +36,7 @@ function action_save()
 
     cursor:commit("cfiptools")
     luci.sys.call("/etc/init.d/cfiptools restart >/dev/null 2>&1")
-    luci.sys.call("/etc/init.d/cron restart >/dev/null 2>&1")
+    luci.sys.call("/etc/init.d/cron reload >/dev/null 2>&1")
 
     if luci.http.formvalue("ajax") == "1" then
         luci.http.prepare_content("application/json")
@@ -48,16 +47,21 @@ function action_save()
 end
 
 function action_start_test()
-    local is_running = luci.sys.exec("pgrep -f 'update.py'")
-    if is_running ~= "" then
-        luci.http.prepare_content("application/json")
-        luci.http.write_json({status = "already_running", message = "测试已经在运行中，请勿重复点击"})
-        return
+    local pid_file = "/var/run/cfiptools.pid"
+    if nixio.fs.access(pid_file) then
+        local pid = luci.sys.exec("cat " .. pid_file .. " 2>/dev/null"):gsub("%s+", "")
+        if pid and pid ~= "" and nixio.fs.access("/proc/" .. pid) then
+            local cmdline = luci.sys.exec("cat /proc/" .. pid .. "/cmdline 2>/dev/null") or ""
+            if cmdline:match("run%.sh") or cmdline:match("cfiptools") then
+                luci.http.prepare_content("application/json")
+                luci.http.write_json({status = "already_running", message = "A test is already running"})
+                return
+            end
+        end
     end
-
     luci.sys.exec("/usr/share/cfiptools/run.sh </dev/null >/dev/null 2>&1 &")
     luci.http.prepare_content("application/json")
-    luci.http.write_json({status = "started", message = "测试启动成功"})
+    luci.http.write_json({status = "started", message = "Test started"})
 end
 
 function action_stop_test()
@@ -90,8 +94,13 @@ function action_get_status()
 
     if nixio.fs.access(status_file) then status = luci.sys.exec("cat " .. status_file):match("^(%S+)") or "空闲" end
     if nixio.fs.access(pid_file) then
-        local pid = tonumber(luci.sys.exec("cat " .. pid_file))
-        if pid and luci.sys.process.signal(pid, 0) then running = true end
+        local pid = luci.sys.exec("cat " .. pid_file .. " 2>/dev/null"):gsub("%s+", "")
+        if pid and pid ~= "" and nixio.fs.access("/proc/" .. pid) then
+            local cmdline = luci.sys.exec("cat /proc/" .. pid .. "/cmdline 2>/dev/null") or ""
+            if cmdline:match("run%.sh") or cmdline:match("cfiptools") then
+                running = true
+            end
+        end
     end
 
     local uci = require "luci.model.uci"
@@ -145,8 +154,8 @@ function action_reset()
         full_output_file = "/usr/share/cfiptools/full_ips.txt", best_output_file = "/usr/share/cfiptools/best_ips.txt",
         update_readme = "1", readme_file = "/usr/share/cfiptools/README.MD", raw_base_url = "",
         test_location = "", update_frequency = "", tcp_timeout_ms = "1500", tcp_workers = "200",
-        speed_timeout_sec = "6", speed_workers = "5", min_speed_mbps = "16", 
-        max_latency_ms = "0", speed_test_count = "1", top_per_region = "10",
+        speed_timeout_sec = "6", speed_workers = "5", min_speed_mbps = "16",
+        max_latency_ms = "0", strict_tcp_count = "0", speed_test_count = "1", top_per_region = "5",
         max_nodes = "0", show_latency = "1", show_bandwidth = "1", fast_label = "⚡",
         numbered_regions = "1", verbose = "0", github_upload_enabled = "0", github_repo = "",
         github_branch = "main", github_token = "", github_message = "Update IP and README",
@@ -157,7 +166,7 @@ function action_reset()
     for k, v in pairs(defaults) do cursor:set("cfiptools", "config", k, v) end
     cursor:commit("cfiptools")
     luci.sys.call("/etc/init.d/cfiptools restart >/dev/null 2>&1")
-    luci.sys.call("/etc/init.d/cron restart >/dev/null 2>&1")
+    luci.sys.call("/etc/init.d/cron reload >/dev/null 2>&1")
     luci.http.redirect(luci.dispatcher.build_url("admin", "services", "cfiptools", "main"))
 end
 
@@ -166,14 +175,16 @@ function action_read_file()
     luci.http.prepare_content("application/json")
     if path == "" then luci.http.write_json({ error = "路径为空" }); return end
 
-    local function safe_path(p)
-        local np = p:gsub("%.%.+/", ""):gsub("/%%.%%.", "")
-        return np
+    local np = path:gsub("%.%.+/", ""):gsub("/%%.%%.", "")
+    local real = nixio.fs.realpath(np)
+    
+    if not real then 
+        luci.http.write_json({ error = "文件不存在或无读取权限" })
+        return 
     end
 
-    local safe = safe_path(path)
     local allowed = false
-    if safe:match("^/usr/share/cfiptools/") then
+    if real:match("^/usr/share/cfiptools/") then
         allowed = true
     else
         local uci = require "luci.model.uci"
@@ -181,19 +192,18 @@ function action_read_file()
         local best = cursor:get("cfiptools", "config", "best_output_file")
         local full = cursor:get("cfiptools", "config", "full_output_file")
         local readme = cursor:get("cfiptools", "config", "readme_file")
-        if (best and safe == best) or (full and safe == full) or (readme and safe == readme) then
+        
+        if (best and real == nixio.fs.realpath(best)) or 
+           (full and real == nixio.fs.realpath(full)) or 
+           (readme and real == nixio.fs.realpath(readme)) then
             allowed = true
         end
     end
 
-    if not allowed then luci.http.write_json({ error = "路径不被允许" }); return end
+    if not allowed then luci.http.write_json({ error = "路径不被允许读取" }); return end
 
-    if safe:find("%.%.", 1, true) then
-        luci.http.write_json({ error = "非法路径" }); return
-    end
-
-    if nixio.fs.access(safe) then
-        local fd = io.open(safe, "r")
+    if nixio.fs.access(real) then
+        local fd = io.open(real, "r")
         if fd then
             local content = fd:read("*a") or ""
             fd:close()
@@ -201,7 +211,7 @@ function action_read_file()
             return
         end
     end
-    luci.http.write_json({ error = "文件不存在或无读取权限" })
+    luci.http.write_json({ error = "文件读取失败" })
 end
 
 function action_manual_upload()
@@ -222,39 +232,44 @@ function action_manual_upload()
 
     local pid_file = "/var/run/cfiptools.pid"
     if nixio.fs.access(pid_file) then
-        local pid = tonumber(luci.sys.exec("cat " .. pid_file))
-        if pid and luci.sys.process.signal(pid, 0) then
+        local pid = luci.sys.exec("cat " .. pid_file .. " 2>/dev/null"):gsub("%s+", "")
+        if pid and pid ~= "" and nixio.fs.access("/proc/" .. pid) then
             luci.http.write_json({success = false, message = "当前有测速任务正在运行，请等待完成后再试！"})
             return
         end
     end
 
     local function sq(s) return "'" .. string.gsub(s, "'", "'\\''") .. "'" end
-    local cmd = string.format([[
-        (
-            echo "上传GitHub" > /var/run/cfiptools.status
-            echo "[$(date +'%%Y-%%m-%%d %%H:%%M:%%S')] [手动触发] 开始上传 GitHub..." >> /var/log/cfiptools.log
-            export ENABLE_GITHUB_UPLOAD="true"
-            export GITHUB_REPO=%s
-            export GITHUB_BRANCH=%s
-            export GITHUB_TOKEN=%s
-            export GITHUB_MESSAGE=%s
-            export GIT_HTTP_PROXY=%s
-            export GIT_HTTPS_PROXY=%s
+    
+    local env_file = "/tmp/.cfiptools_github.env"
+    local fd = io.open(env_file, "w")
+    if fd then
+        fd:write("export ENABLE_GITHUB_UPLOAD='true'\n")
+        fd:write("export GITHUB_REPO=" .. sq(repo) .. "\n")
+        fd:write("export GITHUB_BRANCH=" .. sq(branch) .. "\n")
+        fd:write("export GITHUB_TOKEN=" .. sq(token) .. "\n")
+        fd:write("export GITHUB_MESSAGE=" .. sq(msg) .. "\n")
+        fd:write("export GIT_HTTP_PROXY=" .. sq(http_proxy) .. "\n")
+        fd:write("export GIT_HTTPS_PROXY=" .. sq(https_proxy) .. "\n")
+        fd:close()
+    end
 
-            sh /usr/share/cfiptools/push_results.sh >> /var/log/cfiptools.log 2>&1
+    local cmd = string.format([[(
+        echo "上传GitHub" > /var/run/cfiptools.status
+        echo "[$(date +'%%Y-%%m-%%d %%H:%%M:%%S')] [手动触发] 开始上传 GitHub..." >> /var/log/cfiptools.log
+        . %s
+        sh /usr/share/cfiptools/push_results.sh >> /var/log/cfiptools.log 2>&1
+        if [ $? -eq 0 ]; then
+            echo "[$(date +'%%Y-%%m-%%d %%H:%%M:%%S')] [手动触发] 上传完成" >> /var/log/cfiptools.log
+        else
+            echo "[$(date +'%%Y-%%m-%%d %%H:%%M:%%S')] [手动触发] 上传失败，请检查日志" >> /var/log/cfiptools.log
+        fi
+        echo "空闲" > /var/run/cfiptools.status
+        rm -f %s
+    ) &]], env_file, env_file)
 
-            if [ $? -eq 0 ]; then
-                echo "[$(date +'%%Y-%%m-%%d %%H:%%M:%%S')] [手动触发] 上传完成" >> /var/log/cfiptools.log
-            else
-                echo "[$(date +'%%Y-%%m-%%d %%H:%%M:%%S')] [手动触发] 上传失败，请检查日志" >> /var/log/cfiptools.log
-            fi
-            echo "空闲" > /var/run/cfiptools.status
-        ) &
-    ]], sq(repo), sq(branch), sq(token), sq(msg), sq(http_proxy), sq(https_proxy))
-
-    luci.sys.exec(cmd)
-    luci.http.write_json({success = true, message = "已触发上传指令！将为您跳转到日志页面..."})
+    luci.sys.call(cmd)
+    luci.http.write_json({success = true, message = "已触发防注入安全沙盒上传指令！请检查日志。"})
 end
 
 function action_main()

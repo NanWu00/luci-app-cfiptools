@@ -1,5 +1,5 @@
 #!/bin/sh
-# cfip-tools OpenWRT wrapper script - fixed version
+# cfip-tools OpenWRT wrapper script - V2 Architecture
 set -e
 
 CFG="/etc/config/cfiptools"
@@ -38,8 +38,9 @@ load_uci() {
     CFG_speed_workers=$(uci_get speed_workers "5")
     CFG_min_speed_mbps=$(uci_get min_speed_mbps "16")
     CFG_max_latency_ms=$(uci_get max_latency_ms "0")
+    CFG_strict_tcp_count=$(uci_get strict_tcp_count "0")
     CFG_speed_test_count=$(uci_get speed_test_count "1")
-    CFG_top_per_region=$(uci_get top_per_region "10")
+    CFG_top_per_region=$(uci_get top_per_region "5")
     CFG_max_nodes=$(uci_get max_nodes "0")
     CFG_show_latency=$(uci_get show_latency "1")
     CFG_show_bandwidth=$(uci_get show_bandwidth "1")
@@ -69,8 +70,6 @@ apply_proxy_bypass() {
                 iptables -t nat -I OUTPUT 1 -m owner --uid-owner root -j RETURN -m comment --comment "cfiptools_bypass" 2>/dev/null || true
                 iptables -t mangle -I OUTPUT 1 -m owner --uid-owner root -j RETURN -m comment --comment "cfiptools_bypass" 2>/dev/null || true
                 log "Added iptables bypass rule"
-            else
-                log "iptables not found, skip"
             fi ;;
         nftables)
             if command -v nft >/dev/null 2>&1; then
@@ -82,8 +81,6 @@ apply_proxy_bypass() {
                     nft insert rule "$fam" "$tbl" "$chn" meta skuid root counter return comment \"cfiptools_bypass\" 2>/dev/null || true
                 done
                 log "Added dynamic nftables bypass rules"
-            else
-                log "nftables not found, skip"
             fi ;;
     esac
 }
@@ -100,7 +97,14 @@ cleanup_proxy_bypass() {
                 nft -a list ruleset 2>/dev/null | awk '
                     /table (inet|ip|ip6) / { fam=$2; tbl=$3; gsub(/\"/, "", tbl) }
                     /chain/ { chn=$2; gsub(/\"/, "", chn) }
-                    /cfiptools_bypass/ { print fam, tbl, chn, $NF }
+                    /cfiptools_bypass/ {
+                        for(i=1; i<=NF; i++) {
+                            if($i == "handle") {
+                                print fam, tbl, chn, $(i+1)
+                                break
+                            }
+                        }
+                    }
                 ' | while read -r fam tbl chn hnd; do
                     nft delete rule "$fam" "$tbl" "$chn" handle "$hnd" 2>/dev/null || true
                 done
@@ -129,10 +133,15 @@ run_python() {
 }
 
 run_test() {
-    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-        log "Already running (PID $(cat "$PID_FILE"))"
-        set_status "已在运行"
-        exit 1
+    if [ -f "$PID_FILE" ]; then
+        pid=$(cat "$PID_FILE" 2>/dev/null || true)
+        if [ -n "$pid" ] && [ -d "/proc/$pid" ]; then
+            if grep -q -E "run\.sh|cfiptools" "/proc/$pid/cmdline" 2>/dev/null; then
+                log "Already running (PID $pid)"
+                set_status "已在运行"
+                exit 1
+            fi
+        fi
     fi
     echo $$ > "$PID_FILE"
 
@@ -155,7 +164,7 @@ run_test() {
         DOWNLOAD_TO="${CFG_download_timeout:-30}"
         mkdir -p "$(dirname "$INPUT_FILE")"
         if curl -sL --connect-timeout "$DOWNLOAD_TO" --max-time "$((DOWNLOAD_TO * 2))" \
-            -H "User-Agent: cf-ip-updater/1.0" \
+            -H "User-Agent: cf-ip-updater/2.0" \
             -o "$INPUT_FILE" "${CFG_input_url}" >> "$LOG_FILE" 2>&1; then
             log "Download succeeded"
         else
@@ -190,8 +199,9 @@ run_test() {
     set -- "$@" "--speed-workers" "${CFG_speed_workers:-5}"
     set -- "$@" "--min-speed" "${CFG_min_speed_mbps:-16}"
     set -- "$@" "--max-latency" "${CFG_max_latency_ms:-0}"
+    set -- "$@" "--strict-tcp-count" "${CFG_strict_tcp_count:-0}"
     set -- "$@" "--speed-count" "${CFG_speed_test_count:-1}"
-    set -- "$@" "--top" "${CFG_top_per_region:-10}"
+    set -- "$@" "--top" "${CFG_top_per_region:-5}"
     set -- "$@" "--show-latency" "${CFG_show_latency:-1}"
     set -- "$@" "--show-mbps" "${CFG_show_bandwidth:-1}"
 
@@ -199,14 +209,13 @@ run_test() {
     if [ "${CFG_verbose:-0}" = "1" ]; then set -- "$@" "--verbose"; fi
     set -- "$@" "--fast-label" "${CFG_fast_label:-优选高速}"
 
-    # 修改前是 set_status "TCP延迟测速"
-    # 现在改为"引擎启动中"，随后 Python 引擎接管状态输出
     set_status "引擎启动中"
-    log "Starting speed test..."
+    log "Starting V2 speed test engine..."
+    
     if run_python "$@"; then
         log "update.py finished successfully"
     else
-        local exit_code=$?
+        exit_code=$?
         set_status "失败"
         log "update.py failed with exit code $exit_code"
         run_post_command
@@ -240,14 +249,14 @@ run_test() {
 
         if [ -f "$DATA_DIR/push_results.sh" ]; then
             sh "$DATA_DIR/push_results.sh" >> "$LOG_FILE" 2>&1
-            local push_exit=$?
+            push_exit=$?
             if [ $push_exit -eq 0 ]; then log "GitHub upload completed"; else log "GitHub upload failed (exit $push_exit)"; fi
         else
             log "push_results.sh not found, skip GitHub upload"
         fi
     fi
 
-    local ts=$(date '+%Y-%m-%d %H:%M:%S')
+    ts=$(date '+%Y-%m-%d %H:%M:%S')
     uci -q set cfiptools.config.last_run="$ts"
     uci -q set cfiptools.config.last_result="success"
     uci -q commit cfiptools

@@ -53,10 +53,8 @@ files = ["best_ips.txt", "full_ips.txt", "README.MD"]
 if not token or not repo:
     sys.exit("Error: Missing token or repo")
 
-# 核心防护 1：创建无校验的 SSL 上下文，防止软路由透明代理劫持导致的 TLS 报错
+# 修复安全隐患：开启正规默认的 HTTPS 安全上下文，防患间谍窃取 Token
 ctx = ssl.create_default_context()
-ctx.check_hostname = False
-ctx.verify_mode = ssl.CERT_NONE
 
 if proxy:
     proxy_handler = urllib.request.ProxyHandler({"http": proxy, "https": proxy})
@@ -73,7 +71,7 @@ def api_req(method, endpoint, data=None):
         "User-Agent": "CF-IP-Tools-Python"
     }
     
-    # 核心防护 2：增加 3 次自动重试机制
+    # 核心防护：遇到 GitHub 限流(429)进行自动智能休眠
     for attempt in range(3):
         req = urllib.request.Request(url, method=method, headers=headers)
         if data is not None:
@@ -84,11 +82,15 @@ def api_req(method, endpoint, data=None):
                 return json.loads(f.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             err = e.read().decode("utf-8")
+            if e.code == 429:
+                print(f"Rate limited by GitHub (429) on attempt {attempt+1}. Waiting 10s...")
+                time.sleep(10)
+                continue
             sys.exit(f"GitHub API Error {e.code}: {err}")
         except Exception as e:
             print(f"Network Error (attempt {attempt+1}/3): {e}")
             if attempt < 2:
-                time.sleep(3) # 失败后等待 3 秒再试
+                time.sleep(3)
             else:
                 sys.exit(f"Network Error after 3 attempts: {e}")
 

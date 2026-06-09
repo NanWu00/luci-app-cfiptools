@@ -220,19 +220,19 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
 
             <div class="cf-tab-content" id="tab-test">
                 <div class="cf-field">
-                    <div class="cf-field-label">TCP 超时 (ms)</div>
+                    <div class="cf-field-label">TCP 测速超时</div>
                     <div class="cf-field-input">
                         <select name="tcp_timeout_ms">
-                            <option value="500"  <%=selected("tcp_timeout_ms","500")%>>500</option>
-                            <option value="1000" <%=selected("tcp_timeout_ms","1000")%>>1000</option>
-                            <option value="1500" <%=selected("tcp_timeout_ms","1500")%>>1500（默认）</option>
-                            <option value="2000" <%=selected("tcp_timeout_ms","2000")%>>2000</option>
-                            <option value="5000" <%=selected("tcp_timeout_ms","5000")%>>5000</option>
+                            <option value="500"  <%=selected("tcp_timeout_ms","500")%>>500 ms</option>
+                            <option value="1000" <%=selected("tcp_timeout_ms","1000")%>>1000 ms</option>
+                            <option value="1500" <%=selected("tcp_timeout_ms","1500")%>>1500 ms（默认）</option>
+                            <option value="2000" <%=selected("tcp_timeout_ms","2000")%>>2000 ms</option>
+                            <option value="5000" <%=selected("tcp_timeout_ms","5000")%>>5000 ms</option>
                         </select>
                     </div>
                 </div>
                 <div class="cf-field">
-                    <div class="cf-field-label">TCP 并发数</div>
+                    <div class="cf-field-label">TCP 测速并发</div>
                     <div class="cf-field-input">
                         <select name="tcp_workers">
                             <option value="50"  <%=selected("tcp_workers","50")%>>50</option>
@@ -259,7 +259,20 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
                     </div>
                 </div>
                 <div class="cf-field cf-field-top">
-                    <div class="cf-field-label">测速次数</div>
+                    <div class="cf-field-label">严格 TCP 复测</div>
+                    <div class="cf-field-input">
+                        <select name="strict_tcp_count">
+                            <option value="0" <%=selected("strict_tcp_count","0")%>>不复测（默认）</option>
+                            <option value="1" <%=selected("strict_tcp_count","1")%>>复测 1 次</option>
+                            <option value="2" <%=selected("strict_tcp_count","2")%>>复测 2 次</option>
+                            <option value="3" <%=selected("strict_tcp_count","3")%>>复测 3 次</option>
+                            <option value="5" <%=selected("strict_tcp_count","5")%>>复测 5 次</option>
+                        </select>
+                        <div class="cf-help">选出入围节点后进行多次严格的 TCP 握手复测，任何一次超时或超限直接踢出，过滤不稳定节点！</div>
+                    </div>
+                </div>
+                <div class="cf-field cf-field-top">
+                    <div class="cf-field-label">下载测速次数</div>
                     <div class="cf-field-input">
                         <select name="speed_test_count">
                             <option value="1" <%=selected("speed_test_count","1")%>>1 次（默认）</option>
@@ -267,16 +280,17 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
                             <option value="3" <%=selected("speed_test_count","3")%>>3 次平均</option>
                             <option value="5" <%=selected("speed_test_count","5")%>>5 次平均</option>
                         </select>
-                        <div class="cf-help">对同一节点进行多次测速并取平均值，提升筛选质量（会成倍增加下载测速总耗时）</div>
+                        <div class="cf-help">对幸存的极稳节点进行多次下载测速并取平均值，保证测速真实性。</div>
                     </div>
                 </div>
+
                 <div class="cf-field">
                     <div class="cf-field-label">最低速度 (Mbps)</div>
                     <div class="cf-field-input"><input type="text" name="min_speed_mbps" class="cf-sm" value="<%=get("min_speed_mbps","16")%>"></div>
                 </div>
                 <div class="cf-field">
                     <div class="cf-field-label">每区 Top N</div>
-                    <div class="cf-field-input"><input type="text" name="top_per_region" class="cf-sm" value="<%=get("top_per_region","10")%>"></div>
+                    <div class="cf-field-input"><input type="text" name="top_per_region" class="cf-sm" value="<%=get("top_per_region","5")%>"></div>
                 </div>
                 <div class="cf-field cf-field-top">
                     <div class="cf-field-label">最大节点数</div>
