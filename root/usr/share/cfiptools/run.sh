@@ -1,5 +1,5 @@
 #!/bin/sh
-# cfip-tools OpenWRT wrapper script - V2 Architecture
+# cfip-tools OpenWRT wrapper script - V2 Architecture (Bugfix Edition)
 set -e
 
 CFG="/etc/config/cfiptools"
@@ -112,6 +112,13 @@ cleanup_proxy_bypass() {
             fi ;;
     esac
 }
+
+# 终极修复：提供给 Lua 的无条件安全清理通道
+if [ "$1" = "cleanup" ]; then
+    load_uci
+    cleanup_proxy_bypass
+    exit 0
+fi
 
 run_pre_command() {
     if [ -n "${CFG_pre_test_command:-}" ]; then
@@ -239,7 +246,12 @@ run_test() {
     if [ "${CFG_github_upload_enabled:-0}" = "1" ]; then
         set_status "上传GitHub"
         log "Starting GitHub upload..."
+        
+        # 终极修复：动态暴露出用户的自定义路径，让 Github 脚本不要扑空！
         export ENABLE_GITHUB_UPLOAD="true"
+        export GITHUB_FILE_BEST="${CFG_best_output_file}"
+        export GITHUB_FILE_FULL="${CFG_full_output_file}"
+        export GITHUB_FILE_README="${CFG_readme_file}"
         export GITHUB_REPO="${CFG_github_repo:-}"
         export GITHUB_BRANCH="${CFG_github_branch:-main}"
         export GITHUB_TOKEN="${CFG_github_token:-}"
@@ -266,4 +278,7 @@ run_test() {
     run_post_command
 }
 
-run_test
+# 只有没传 cleanup 参数时，才执行测速
+if [ -z "$1" ]; then
+    run_test
+fi

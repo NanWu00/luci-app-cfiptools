@@ -67,21 +67,26 @@ end
 function action_stop_test()
     luci.sys.exec("echo '--- [INFO] 正在尝试强制终止任务... ---' >> /var/log/cfiptools.log")
     
+    -- 终极修复：绝对不能直接 kill -9 run.sh，那会导致绕过防火墙规则残留，毁掉用户网络！
+    -- 改为调用 run.sh 内部暴露的专属安全清理通道，让其自己干干净净地退出
+    luci.sys.exec("sh /usr/share/cfiptools/run.sh cleanup 2>/dev/null")
+    luci.sys.exec("sleep 1") -- 给予代理重置 1 秒钟的喘息时间
+    
+    -- 强效扫尾：保证没有任何僵尸测速并发进程遗留
     local pids = luci.sys.exec("pgrep -f 'cfiptools' ; pgrep -f 'update.py' ; pgrep -f 'curl'"):gsub("\n", " ")
     if pids ~= "" then
         for pid in pids:gmatch("%S+") do
             luci.sys.exec("kill -9 " .. pid .. " 2>/dev/null")
         end
     end
-    luci.sys.exec("killall -9 run.sh 2>/dev/null")
     
-    luci.sys.exec("echo '--- [STOPPED] 任务已强制中断 ---' >> /var/log/cfiptools.log")
+    luci.sys.exec("echo '--- [STOPPED] 任务已强制中断并安全重置代理环境 ---' >> /var/log/cfiptools.log")
     
     luci.sys.exec("rm -f /var/run/cfiptools.pid 2>/dev/null")
     luci.sys.exec("echo '空闲' > /var/run/cfiptools.status 2>/dev/null")
     
     luci.http.prepare_content("application/json")
-    luci.http.write_json({status = "stopped", message = "已执行全量 PID 清理"})
+    luci.http.write_json({status = "stopped", message = "已执行防泄露清理"})
 end
 
 function action_get_status()
@@ -138,7 +143,7 @@ function action_clear_log()
 end
 
 function action_reset()
-    luci.sys.exec("pkill -f 'update.py' 2>/dev/null")
+    luci.sys.exec("sh /usr/share/cfiptools/run.sh cleanup 2>/dev/null")
     luci.sys.exec("rm -f /var/run/cfiptools.pid")
     luci.sys.exec(": > /var/run/cfiptools.status 2>/dev/null")
     luci.sys.exec(": > /var/log/cfiptools.log 2>/dev/null")
@@ -223,6 +228,11 @@ function action_manual_upload()
     local msg = cursor:get("cfiptools", "config", "github_message") or "Manual Update IP"
     local http_proxy = cursor:get("cfiptools", "config", "git_http_proxy") or ""
     local https_proxy = cursor:get("cfiptools", "config", "git_https_proxy") or ""
+    
+    -- 提取出自定义文件路径交由 Github 手动上传按钮使用
+    local file_best = cursor:get("cfiptools", "config", "best_output_file") or "/usr/share/cfiptools/best_ips.txt"
+    local file_full = cursor:get("cfiptools", "config", "full_output_file") or "/usr/share/cfiptools/full_ips.txt"
+    local file_readme = cursor:get("cfiptools", "config", "readme_file") or "/usr/share/cfiptools/README.MD"
 
     luci.http.prepare_content("application/json")
     if repo == "" or token == "" then
@@ -251,6 +261,9 @@ function action_manual_upload()
         fd:write("export GITHUB_MESSAGE=" .. sq(msg) .. "\n")
         fd:write("export GIT_HTTP_PROXY=" .. sq(http_proxy) .. "\n")
         fd:write("export GIT_HTTPS_PROXY=" .. sq(https_proxy) .. "\n")
+        fd:write("export GITHUB_FILE_BEST=" .. sq(file_best) .. "\n")
+        fd:write("export GITHUB_FILE_FULL=" .. sq(file_full) .. "\n")
+        fd:write("export GITHUB_FILE_README=" .. sq(file_readme) .. "\n")
         fd:close()
     end
 

@@ -48,12 +48,15 @@ token = os.environ.get("GITHUB_TOKEN")
 message = os.environ.get("GITHUB_MESSAGE", "Update IP results")
 proxy = os.environ.get("GIT_HTTPS_PROXY") or os.environ.get("GIT_HTTP_PROXY")
 
-files = ["best_ips.txt", "full_ips.txt", "README.MD"]
-
 if not token or not repo:
     sys.exit("Error: Missing token or repo")
 
-# 修复安全隐患：开启正规默认的 HTTPS 安全上下文，防患间谍窃取 Token
+# 终极修复：动态接收来自 LuCI 和 run.sh 的用户自定义文件绝对路径，避免由于写死路径导致 Github 上传了寂寞
+best_file = os.environ.get("GITHUB_FILE_BEST", "best_ips.txt")
+full_file = os.environ.get("GITHUB_FILE_FULL", "full_ips.txt")
+readme_file = os.environ.get("GITHUB_FILE_README", "README.MD")
+files_to_check = [best_file, full_file, readme_file]
+
 ctx = ssl.create_default_context()
 
 if proxy:
@@ -71,7 +74,6 @@ def api_req(method, endpoint, data=None):
         "User-Agent": "CF-IP-Tools-Python"
     }
     
-    # 核心防护：遇到 GitHub 限流(429)进行自动智能休眠
     for attempt in range(3):
         req = urllib.request.Request(url, method=method, headers=headers)
         if data is not None:
@@ -101,16 +103,16 @@ try:
     base_tree_sha = commit_data["tree"]["sha"]
 
     tree_items = []
-    for file in files:
-        if os.path.exists(file):
-            with open(file, "rb") as f:
+    for file_path in files_to_check:
+        if os.path.exists(file_path):
+            with open(file_path, "rb") as f:
                 content = f.read()
             blob_data = api_req("POST", "/git/blobs", {
                 "content": base64.b64encode(content).decode("utf-8"),
                 "encoding": "base64"
             })
             tree_items.append({
-                "path": file,
+                "path": os.path.basename(file_path), # 提取文件名，放到仓库根目录
                 "mode": "100644",
                 "type": "blob",
                 "sha": blob_data["sha"]
@@ -126,7 +128,7 @@ try:
     new_tree_sha = new_tree_data["sha"]
 
     if new_tree_sha == base_tree_sha:
-        print(f"Nothing to push: {files} are already up to date.")
+        print(f"Nothing to push: local files are already up to date.")
         sys.exit(0)
 
     new_commit_data = api_req("POST", "/git/commits", {
