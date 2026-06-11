@@ -42,19 +42,19 @@ upload_github() {
     python3 -c '
 import sys, os, base64, json, urllib.request, urllib.error, ssl, time
 
-repo = os.environ.get("GITHUB_REPO")
-branch = os.environ.get("GITHUB_BRANCH", "main")
-token = os.environ.get("GITHUB_TOKEN")
-message = os.environ.get("GITHUB_MESSAGE", "Update IP results")
+# 核心防呆：使用 strip() 强制剥离任何可能被用户不小心复制进去的空格和换行符
+repo = os.environ.get("GITHUB_REPO", "").strip()
+branch = os.environ.get("GITHUB_BRANCH", "main").strip()
+token = os.environ.get("GITHUB_TOKEN", "").strip()
+message = os.environ.get("GITHUB_MESSAGE", "Update IP results").strip()
 proxy = os.environ.get("GIT_HTTPS_PROXY") or os.environ.get("GIT_HTTP_PROXY")
 
 if not token or not repo:
     sys.exit("Error: Missing token or repo")
 
-# 终极修复：动态接收来自 LuCI 和 run.sh 的用户自定义文件绝对路径，避免由于写死路径导致 Github 上传了寂寞
-best_file = os.environ.get("GITHUB_FILE_BEST", "best_ips.txt")
-full_file = os.environ.get("GITHUB_FILE_FULL", "full_ips.txt")
-readme_file = os.environ.get("GITHUB_FILE_README", "README.MD")
+best_file = os.environ.get("GITHUB_FILE_BEST", "best_ips.txt").strip()
+full_file = os.environ.get("GITHUB_FILE_FULL", "full_ips.txt").strip()
+readme_file = os.environ.get("GITHUB_FILE_README", "README.MD").strip()
 files_to_check = [best_file, full_file, readme_file]
 
 ctx = ssl.create_default_context()
@@ -69,7 +69,7 @@ urllib.request.install_opener(opener)
 def api_req(method, endpoint, data=None):
     url = f"https://api.github.com/repos/{repo}{endpoint}"
     headers = {
-        "Authorization": f"token {token}",
+        "Authorization": f"Bearer {token}",  # 升级为最新的 Bearer 鉴权标准
         "Accept": "application/vnd.github.v3+json",
         "User-Agent": "CF-IP-Tools-Python"
     }
@@ -112,7 +112,7 @@ try:
                 "encoding": "base64"
             })
             tree_items.append({
-                "path": os.path.basename(file_path), # 提取文件名，放到仓库根目录
+                "path": os.path.basename(file_path),
                 "mode": "100644",
                 "type": "blob",
                 "sha": blob_data["sha"]
