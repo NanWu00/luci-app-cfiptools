@@ -31,7 +31,8 @@ def update_readme(file_path: Path) -> None:
             if line.startswith("# "):
                 insert_idx = idx + 1
                 break
-        while insert_idx < len(lines) and not lines[insert_idx].strip(): insert_idx += 1
+        while insert_idx < len(lines) and not lines[insert_idx].strip():
+            insert_idx += 1
         lines.insert(insert_idx, "")
         lines.insert(insert_idx + 1, new_line)
         lines.insert(insert_idx + 2, "")

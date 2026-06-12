@@ -113,7 +113,7 @@ cleanup_proxy_bypass() {
     esac
 }
 
-# 终极修复：提供给 Lua 的无条件安全清理通道
+# 提供给 Lua 的安全清理通道
 if [ "$1" = "cleanup" ]; then
     load_uci
     cleanup_proxy_bypass
@@ -123,20 +123,28 @@ fi
 run_pre_command() {
     if [ -n "${CFG_pre_test_command:-}" ]; then
         log "Running pre-test: ${CFG_pre_test_command}"
-        eval "$CFG_pre_test_command" >> "$LOG_FILE" 2>&1 || log "Pre-test failed (ignored)"
+        sh -c "$CFG_pre_test_command" >> "$LOG_FILE" 2>&1 || log "Pre-test failed (ignored)"
     fi
 }
 
 run_post_command() {
     if [ -n "${CFG_post_test_command:-}" ]; then
         log "Running post-test: ${CFG_post_test_command}"
-        eval "$CFG_post_test_command" >> "$LOG_FILE" 2>&1 || log "Post-test failed (ignored)"
+        sh -c "$CFG_post_test_command" >> "$LOG_FILE" 2>&1 || log "Post-test failed (ignored)"
     fi
 }
 
 run_python() {
     cd "$DATA_DIR"
     python3 -u "$DATA_DIR/update.py" "$@" >> "$LOG_FILE" 2>&1
+}
+
+# 仅在异常退出时杀子进程，正常退出不杀
+cleanup_on_abort() {
+    cleanup_proxy_bypass
+    pkill -9 -f "update.py" 2>/dev/null || true
+    pkill -9 -f "curl.*speed.cloudflare.com" 2>/dev/null || true
+    rm -f "$PID_FILE"
 }
 
 run_test() {
@@ -152,7 +160,9 @@ run_test() {
     fi
     echo $$ > "$PID_FILE"
 
-    trap 'cleanup_proxy_bypass; pkill -9 -f "update.py" 2>/dev/null; pkill -9 -f "curl.*speed.cloudflare.com" 2>/dev/null; rm -f "$PID_FILE"' EXIT INT TERM
+    # 正常退出时不执行额外清理，仅记录完成
+    trap 'cleanup_on_abort' INT TERM
+    trap 'rm -f "$PID_FILE"; log "Normal exit"' EXIT
 
     load_uci
     run_pre_command
@@ -218,7 +228,7 @@ run_test() {
 
     set_status "引擎启动中"
     log "Starting V2 speed test engine..."
-    
+
     if run_python "$@"; then
         log "update.py finished successfully"
     else
@@ -228,7 +238,7 @@ run_test() {
         run_post_command
         exit $exit_code
     fi
-    
+
     cleanup_proxy_bypass
     log "等待 3 秒让代理核心恢复网络环境..."
     sleep 3
@@ -246,8 +256,7 @@ run_test() {
     if [ "${CFG_github_upload_enabled:-0}" = "1" ]; then
         set_status "上传GitHub"
         log "Starting GitHub upload..."
-        
-        # 终极修复：动态暴露出用户的自定义路径，让 Github 脚本不要扑空！
+
         export ENABLE_GITHUB_UPLOAD="true"
         export GITHUB_FILE_BEST="${CFG_best_output_file}"
         export GITHUB_FILE_FULL="${CFG_full_output_file}"
@@ -259,12 +268,16 @@ run_test() {
         export GIT_HTTP_PROXY="${CFG_git_http_proxy:-}"
         export GIT_HTTPS_PROXY="${CFG_git_https_proxy:-}"
 
-        if [ -f "$DATA_DIR/push_results.sh" ]; then
-            sh "$DATA_DIR/push_results.sh" >> "$LOG_FILE" 2>&1
+        if [ -f "$DATA_DIR/github_upload.py" ]; then
+            python3 "$DATA_DIR/github_upload.py" >> "$LOG_FILE" 2>&1
             push_exit=$?
-            if [ $push_exit -eq 0 ]; then log "GitHub upload completed"; else log "GitHub upload failed (exit $push_exit)"; fi
+            if [ $push_exit -eq 0 ]; then
+                log "GitHub upload completed"
+            else
+                log "GitHub upload failed (exit $push_exit)"
+            fi
         else
-            log "push_results.sh not found, skip GitHub upload"
+            log "github_upload.py not found, skip GitHub upload"
         fi
     fi
 

@@ -15,7 +15,6 @@ validate_cron() {
     sed -i '/cfiptools/d' /etc/crontabs/root 2>/dev/null || true
 
     if [ "$enabled" -eq 1 ] && [ -n "$cron_schedule" ]; then
-        # 简单校验 cron 格式
         if echo "$cron_schedule" | grep -qE '^[0-9*/,-]+ [0-9*/,-]+ [0-9*/,-]+ [0-9*/,-]+ [0-9*/,-]+$'; then
             echo "$cron_schedule /usr/share/cfiptools/run.sh" >> /etc/crontabs/root
         else
@@ -36,6 +35,6 @@ stop() {
 }
 
 restart() {
-    stop
+    # 直接调用 start 即可，start 已包含清理+重建逻辑
     start
 }

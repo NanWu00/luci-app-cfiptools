@@ -30,12 +30,12 @@ elseif sched == "0 4 * * *" then
 else 
     cron_interval = string.match(sched, "/(%d+)") or "24" 
 end
+
+-- Token 不回显原始值，仅占位提示
+local token_placeholder = (get("github_token","") ~= "") and "已设置 (留空不修改)" or "未设置"
 %>
 
 <style>
-/* ============================================================
-   CFIPTools - 终极版 UI
-   ============================================================ */
 .cf-wrap { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--font-color, #2D3748); line-height: 1.5; }
 .cf-statusbar { background: var(--background-color, linear-gradient(135deg, #F0F4FF, #E8EDF5)); border: 1px solid var(--border-color, #DDE3F0); border-radius: 4px; padding: 10px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 38px; }
 .cf-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #ADB5BD; flex-shrink: 0; }
@@ -122,16 +122,16 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
 
     <div class="cf-card">
         <div class="cf-tabs">
-            <button class="cf-tab active" onclick="switchTab('nodes')">节点查看</button>
-            <button class="cf-tab" onclick="switchTab('basic')">基本设置</button>
-            <button class="cf-tab" onclick="switchTab('test')">测速参数</button>
-            <button class="cf-tab" onclick="switchTab('output')">节点输出</button>
-            <button class="cf-tab" onclick="switchTab('github')">GitHub 推送</button>
-            <button class="cf-tab" onclick="switchTab('advanced')">高级设置</button>
-            <button class="cf-tab" onclick="switchTab('log')">查看日志</button>
+            <button class="cf-tab active" data-tab="nodes" onclick="switchTab('nodes')">节点查看</button>
+            <button class="cf-tab" data-tab="basic" onclick="switchTab('basic')">基本设置</button>
+            <button class="cf-tab" data-tab="test" onclick="switchTab('test')">测速参数</button>
+            <button class="cf-tab" data-tab="output" onclick="switchTab('output')">节点输出</button>
+            <button class="cf-tab" data-tab="github" onclick="switchTab('github')">GitHub 推送</button>
+            <button class="cf-tab" data-tab="advanced" onclick="switchTab('advanced')">高级设置</button>
+            <button class="cf-tab" data-tab="log" onclick="switchTab('log')">查看日志</button>
         </div>
 
-        <form method="post" action="<%=luci.dispatcher.build_url('admin','services','cfiptools','save')%>" onsubmit="updateHiddenCron()">
+        <form method="post" action="<%=luci.dispatcher.build_url('admin','services','cfiptools','save')%>" onsubmit="return handleSubmit()">
         <div class="cf-tab-body">
             <div class="cf-tab-content active" id="tab-nodes">
                 <div class="cf-file-section">
@@ -250,7 +250,6 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
                     <div class="cf-field-label">下载并发数</div>
                     <div class="cf-field-input"><input type="text" name="speed_workers" class="cf-sm" value="<%=get("speed_workers","5")%>"></div>
                 </div>
-                
                 <div class="cf-field cf-field-top">
                     <div class="cf-field-label">最高延迟 (ms)</div>
                     <div class="cf-field-input">
@@ -268,7 +267,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
                             <option value="3" <%=selected("strict_tcp_count","3")%>>复测 3 次</option>
                             <option value="5" <%=selected("strict_tcp_count","5")%>>复测 5 次</option>
                         </select>
-                        <div class="cf-help">选出入围节点后进行多次严格的 TCP 握手复测，任何一次超时或超限直接踢出，过滤不稳定节点！</div>
+                        <div class="cf-help">选出入围节点后进行多次严格的 TCP 握手复测，过滤不稳定节点</div>
                     </div>
                 </div>
                 <div class="cf-field cf-field-top">
@@ -280,10 +279,9 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
                             <option value="3" <%=selected("speed_test_count","3")%>>3 次平均</option>
                             <option value="5" <%=selected("speed_test_count","5")%>>5 次平均</option>
                         </select>
-                        <div class="cf-help">对幸存的极稳节点进行多次下载测速并取平均值，保证测速真实性。</div>
+                        <div class="cf-help">多次下载测速取平均值，保证测速真实性</div>
                     </div>
                 </div>
-
                 <div class="cf-field">
                     <div class="cf-field-label">最低速度 (Mbps)</div>
                     <div class="cf-field-input"><input type="text" name="min_speed_mbps" class="cf-sm" value="<%=get("min_speed_mbps","16")%>"></div>
@@ -362,7 +360,14 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
                     </div>
                     <div class="cf-field">
                         <div class="cf-field-label">Token</div>
-                        <div class="cf-field-input"><input type="password" name="github_token" value="<%=get("github_token","")%>"></div>
+                        <div class="cf-field-input">
+						 <div style="display:flex; align-items:center; gap:6px;">
+                            <input type="password" id="github_token" data-name="github_token" value="" placeholder="<%=token_placeholder%>" autocomplete="off"
+							    onfocus="activateTokenField(this)" oninput="activateTokenField(this)" style="flex:1;">
+							<button type="button" class="cf-btn cf-btn-outline" onclick="clearToken()" style="white-space:nowrap; font-size:12px;">清除 Token</button>
+						</div>
+                        <div class="cf-help">点击输入框输入新 Token 后保存才生效；未编辑则保留原 Token。</div>
+                    </div>
                     </div>
                     <div class="cf-field">
                         <div class="cf-field-label">提交消息</div>
@@ -420,7 +425,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
         </div>
 
         <div class="cf-save-bar">
-            <button type="submit" class="cf-btn cf-btn-save" onclick="rememberTab()">保存</button>
+            <button type="submit" class="cf-btn cf-btn-save" id="save-btn">保存</button>
             <button type="button" class="cf-btn cf-btn-save" onclick="saveAndTest()">保存并运行</button>
             <button type="button" class="cf-btn cf-btn-danger" onclick="resetConfig()" style="margin-left:auto;">重置</button>
         </div>
@@ -429,6 +434,16 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
 </div>
 
 <script>
+var submitting = false;
+
+function handleSubmit() {
+    if (submitting) return false;
+    submitting = true;
+    document.getElementById('save-btn').disabled = true;
+    setTimeout(function(){ submitting = false; }, 2000);
+    return true;
+}
+
 function updateHiddenCron() {
     var el = document.getElementById('sel_cron_interval');
     var h = document.getElementById('hidden_cron_schedule');
@@ -463,50 +478,36 @@ function startLogStream() {
 function fetchLogPoll() {
     var box = document.getElementById('log-content');
     var sel = window.getSelection();
-
     if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
         var r = sel.getRangeAt(0);
         if (box.contains(r.commonAncestorContainer)) return;
     }
-
     var url = '<%=luci.dispatcher.build_url("admin","services","cfiptools","log_poll")%>' + '?t=' + new Date().getTime();
-
     fetch(url)
         .then(function(r) { return r.json(); })
         .then(function(d) {
             if (d.content !== undefined && d.content !== null) {
                 if (d.content === box._lastContent) return;
-
                 var isAtTop = box.scrollTop <= 10;
                 var oldScrollHeight = box.scrollHeight;
                 var lines = d.content.split('\n');
-
                 for (var i = 0; i < lines.length; i++) {
                     if (lines[i].indexOf('\r') !== -1) {
                         var parts = lines[i].split('\r');
                         lines[i] = parts[parts.length - 1]; 
                     }
                 }
-
                 var cleanLines = [];
                 for (var j = 0; j < lines.length; j++) {
-                    if (lines[j].trim() !== '') {
-                        cleanLines.push(lines[j]);
-                    }
+                    if (lines[j].trim() !== '') cleanLines.push(lines[j]);
                 }
-
                 var finalContent = cleanLines.reverse().join('\n');
-
                 box.textContent = finalContent;
                 box._lastContent = d.content;
-
-                if (isAtTop) {
-                    box.scrollTop = 0;
-                } else {
+                if (isAtTop) box.scrollTop = 0;
+                else {
                     var heightDiff = box.scrollHeight - oldScrollHeight;
-                    if (heightDiff > 0) {
-                        box.scrollTop += heightDiff;
-                    }
+                    if (heightDiff > 0) box.scrollTop += heightDiff;
                 }
             }
         })
@@ -526,10 +527,7 @@ function switchTab(name) {
     document.querySelectorAll('.cf-tab').forEach(function(t){t.classList.remove('active')});
     document.querySelectorAll('.cf-tab-content').forEach(function(c){c.classList.remove('active')});
     stopLogStream();
-    var map={nodes:'节点查看',basic:'基本设置',test:'测速参数',output:'节点输出',github:'GitHub',advanced:'高级设置',log:'查看日志'};
-    var btn=Array.from(document.querySelectorAll('.cf-tab')).find(function(t){
-        return t.textContent.trim().indexOf(map[name])===0;
-    });
+    var btn = document.querySelector('.cf-tab[data-tab="' + name + '"]');
     if(btn) btn.classList.add('active');
     document.getElementById('tab-'+name).classList.add('active');
     if(name==='log') startLogStream();
@@ -682,6 +680,18 @@ function manualUpload() {
         })
         .catch(function(){ alert('请求失败，请检查网络连接'); })
         .finally(function(){ btn.disabled = false; btn.textContent = oldText; });
+}
+function activateTokenField(el) {
+    if (!el.hasAttribute('name')) {
+        el.setAttribute('name', el.getAttribute('data-name'));
+    }
+}
+function clearToken() {
+    var el = document.getElementById('github_token');
+    el.value = '';
+    el.setAttribute('name', el.getAttribute('data-name'));
+    // 可选提示
+    alert('Token 将被清空，请点击底部「保存」以生效。');
 }
 document.getElementById('opt_enabled').addEventListener('change',function(){ toggleCond('cond-cron',this.checked); });
 document.getElementById('opt_dl').addEventListener('change',function(){ toggleCond('cond-dl',this.checked); });

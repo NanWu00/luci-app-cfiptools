@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+ENABLE_GITHUB_UPLOAD="${ENABLE_GITHUB_UPLOAD:-true}"
+case "${ENABLE_GITHUB_UPLOAD,,}" in
+    1|true|yes|on) ;;
+    *) echo "GitHub upload disabled."; exit 0 ;;
+esac
+
+cd "$(dirname "$0")" || exit 1
+
+if [ -f "github_upload.py" ]; then
+    exec python3 "github_upload.py"
+else
+    echo "github_upload.py not found" >&2
+    exit 1
+fi
