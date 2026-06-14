@@ -53,6 +53,17 @@ jobs:
           find . -type f -name "*.py" -exec chmod +x {} +
           find . -type f -name "cfiptools" -exec chmod +x {} +
           
+          # ==== 动态版本号黑科技开始 ====
+          # 提取当前北京时间的 月.日.时 作为主版本号 (例如 10月25日14时 -> 10.25.14)
+          DATE_VERSION=$(TZ='Asia/Shanghai' date +'%m.%d.%H')
+          
+          # 将 Makefile 里的 PKG_VERSION 替换为上述时间格式
+          sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=${DATE_VERSION}/g" Makefile
+          
+          # 继续用 github.run_number 作为补丁号 (Release)
+          sed -i "s/PKG_RELEASE:=.*/PKG_RELEASE:=${{ github.run_number }}/g" Makefile
+          # ==== 动态版本号黑科技结束 ====
+          
           rsync -a --exclude='sdk' --exclude='.git' --exclude='.github' ./ sdk/package/luci-app-cfiptools/
 
       - name: 生成配置并开始狂暴多核编译
@@ -70,7 +81,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: luci-app-cfiptools-package
+          # 精确匹配包含 luci-app-cfiptools 的安装包，屏蔽掉其他基础依赖包
           path: |
-            sdk/bin/packages/**/*.apk
-            sdk/bin/packages/**/*.ipk
+            sdk/bin/packages/**/*luci-app-cfiptools*.apk
+            sdk/bin/packages/**/*luci-app-cfiptools*.ipk
           retention-days: 7
