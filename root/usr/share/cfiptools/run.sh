@@ -54,6 +54,7 @@ load_uci() {
     CFG_github_branch=$(uci_get github_branch "main")
     CFG_github_token=$(uci_get github_token "")
     CFG_github_message=$(uci_get github_message "Update IP and README")
+    CFG_blocked_regions=$(uci_get blocked_regions "")
     CFG_git_http_proxy=$(uci_get git_http_proxy "")
     CFG_git_https_proxy=$(uci_get git_https_proxy "")
     CFG_bypass_proxy_method=$(uci_get bypass_proxy_method "env")
@@ -225,6 +226,10 @@ run_test() {
     if [ "${CFG_numbered_regions:-0}" = "1" ]; then set -- "$@" "--numbered"; fi
     if [ "${CFG_verbose:-0}" = "1" ]; then set -- "$@" "--verbose"; fi
     set -- "$@" "--fast-label" "${CFG_fast_label:-优选高速}"
+
+    if [ -n "${CFG_blocked_regions:-}" ]; then 
+        set -- "$@" "--blocked-regions" "${CFG_blocked_regions}"
+    fi
 
     set_status "引擎启动中"
     log "Starting V2 speed test engine..."

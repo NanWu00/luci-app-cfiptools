@@ -317,13 +317,11 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
                     <div class="cf-field-label">快速标签</div>
                     <div class="cf-field-input"><input type="text" name="fast_label" class="cf-sm" value="<%=get("fast_label","⚡")%>"></div>
                 </div>
-                <div class="cf-field">
-                    <div class="cf-field-label">地点 / 频率</div>
+                <div class="cf-field cf-field-top">
+                    <div class="cf-field-label">屏蔽地区</div>
                     <div class="cf-field-input">
-                        <div class="cf-inline">
-                            <input type="text" name="test_location" class="cf-md" value="<%=get("test_location","")%>" placeholder="如 Shanghai">
-                            <input type="text" name="update_frequency" class="cf-md" value="<%=get("update_frequency","")%>" placeholder="如 每6小时">
-                        </div>
+                        <input type="text" name="blocked_regions" class="cf-md" value="<%=get("blocked_regions","")%>" placeholder="如 HK,TW">
+                        <div class="cf-help">多个地区请用英文逗号分隔，如 HK,TW。被屏蔽地区的节点将不会出现在最终输出文件中。</div>
                     </div>
                 </div>
                 <div class="cf-field">

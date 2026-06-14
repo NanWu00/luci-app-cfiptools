@@ -86,6 +86,7 @@ class AppConfig:
     show_mbps: bool
     fast_label: str
     input_url: str
+    blocked_regions: str
 
 @dataclass(frozen=True)
 class Node:
@@ -129,6 +130,7 @@ def parse_args() -> AppConfig:
     parser.add_argument("--show-mbps", type=str, default="0")
     parser.add_argument("--fast-label", type=str, default=DEFAULT_FAST_LABEL)
     parser.add_argument("--input-url", type=str, default=DEFAULT_INPUT_URL)
+    parser.add_argument("--blocked-regions", type=str, default="")
     args = parser.parse_args()
 
     return AppConfig(
@@ -150,7 +152,8 @@ def parse_args() -> AppConfig:
         show_latency=parse_bool(args.show_latency),
         show_mbps=parse_bool(args.show_mbps),
         fast_label=args.fast_label,
-        input_url=args.input_url
+        input_url=args.input_url,
+        blocked_regions=args.blocked_regions
     )
 
 def parse_node(line: str) -> Node | None:
@@ -428,7 +431,20 @@ async def measure_speed_async(node: Node, timeout: float, process_buffer: float)
         if total_time <= 0 or bytes_received == 0:
             return 0.0
 
-        return round((bytes_received * 8) / (total_time * 1_000_000), 2)
+        # --- 防虚假极速（毛刺）的误差收敛机制 ---
+        
+        # 1. 最小有效载荷防御：
+        # 如果下载的数据连 128KB (131072 bytes) 都没有，说明握手后立刻被切断（或只收到了头部碎片）。
+        # 这根本不足以评估真实带宽，直接淘汰。
+        if bytes_received < 131072:
+            return 0.0
+            
+        # 2. 最小时间基准防御：
+        # 防止 0.01 秒内断开导致“除以接近零的数”从而算出几百兆的假速度。
+        # 强制最小时间分母为 0.2 秒，将毛刺带来的带宽膨胀强行压下去。
+        effective_time = max(total_time, 0.2)
+
+        return round((bytes_received * 8) / (effective_time * 1_000_000), 2)
     except Exception:
         return 0.0
 
@@ -589,6 +605,19 @@ async def run(config: AppConfig) -> int:
         return 1
     if not nodes:
         print(f"ERROR: no valid nodes found in {config.input_file}")
+        return 1
+
+    # 提前执行屏蔽地区逻辑（忽略大小写，兼容多余空格），从源头剔除不参与 TCP 握手
+    if config.blocked_regions:
+        blocked_set = {r.strip().upper() for r in config.blocked_regions.split(",") if r.strip()}
+        if blocked_set:
+            original_count = len(nodes)
+            nodes = [n for n in nodes if n.region.upper() not in blocked_set]
+            filtered_count = original_count - len(nodes)
+            print(f"--- [INFO] 已根据屏蔽规则剔除 {filtered_count} 个节点 ---")
+            
+    if not nodes:
+        print(f"ERROR: 所有节点均被屏蔽规则剔除")
         return 1
 
     # 1. TCP 初筛

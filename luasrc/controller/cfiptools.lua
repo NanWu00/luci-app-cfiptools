@@ -25,7 +25,7 @@ function action_save()
         cursor:set("cfiptools", "config", name, val or "0")
     end
 
-    local fields = { "cron_schedule", "input_url", "download_timeout", "input_file", "full_output_file", "best_output_file", "tcp_timeout_ms", "tcp_workers", "speed_timeout_sec", "speed_workers", "min_speed_mbps", "max_latency_ms", "strict_tcp_count", "speed_test_count", "top_per_region", "max_nodes", "fast_label", "readme_file", "raw_base_url", "test_location", "update_frequency", "github_repo", "github_branch", "github_token", "github_message", "git_http_proxy", "git_https_proxy", "bypass_proxy_method", "pre_test_command", "post_test_command" }
+    local fields = { "cron_schedule", "input_url", "download_timeout", "input_file", "full_output_file", "best_output_file", "tcp_timeout_ms", "tcp_workers", "speed_timeout_sec", "speed_workers", "min_speed_mbps", "max_latency_ms", "strict_tcp_count", "speed_test_count", "top_per_region", "max_nodes", "fast_label", "readme_file", "raw_base_url", "blocked_regions", "github_repo", "github_branch", "github_token", "github_message", "git_http_proxy", "git_https_proxy", "bypass_proxy_method", "pre_test_command", "post_test_command" }
 
     for _, name in ipairs(fields) do
         local val = luci.http.formvalue(name)
@@ -158,7 +158,7 @@ function action_reset()
         download_input = "1", download_timeout = "30", input_file = "/usr/share/cfiptools/ips.txt",
         full_output_file = "/usr/share/cfiptools/full_ips.txt", best_output_file = "/usr/share/cfiptools/best_ips.txt",
         update_readme = "1", readme_file = "/usr/share/cfiptools/README.MD", raw_base_url = "",
-        test_location = "", update_frequency = "", tcp_timeout_ms = "1500", tcp_workers = "200",
+        blocked_regions = "", tcp_timeout_ms = "1500", tcp_workers = "200",
         speed_timeout_sec = "6", speed_workers = "5", min_speed_mbps = "16",
         max_latency_ms = "0", strict_tcp_count = "0", speed_test_count = "1", top_per_region = "5",
         max_nodes = "0", show_latency = "1", show_bandwidth = "1", fast_label = "⚡",
