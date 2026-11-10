@@ -33,6 +33,9 @@ DEFAULT_TLS_WORKERS = 8
 SPEED_DOMAIN = "speed.cloudflare.com"
 SPEED_SNI = ""            # 空 = 跟随 SPEED_DOMAIN
 SPEED_PATH = "/__down"
+
+# 详细日志开关：由 --verbose 打开，用于把「为什么这个节点是 0 Mbps」说清楚
+_VERBOSE = False
 # 单节点只下 10MB：50 个候选 ≈ 500MB，足够判断吞吐，又不会把日流量推到 100GB+
 SPEED_REQUEST_BYTES = 10 * 1024 * 1024
 DEFAULT_FAST_LABEL = "优选高速"
@@ -564,7 +567,7 @@ async def verify_candidates_strict(
 
     return list(valid_nodes.values())
 
-async def measure_speed_async(node: Node, timeout: float, window: float) -> float:
+async def _measure_once(node: Node, timeout: float, window: float) -> float:
     try:
         reader, writer = await open_edge_connection(
             node.ip, node.port, timeout,
@@ -590,6 +593,9 @@ async def measure_speed_async(node: Node, timeout: float, window: float) -> floa
                 break
 
         if b"200 OK" not in header_data:
+            if _VERBOSE:
+                first = header_data.split(b"\r\n", 1)[0][:80]
+                print(f"[-] 测速失败 {node.ip}:{node.port}：HTTP 响应 {first!r}")
             writer.close()
             await writer.wait_closed()
             return 0.0
@@ -625,6 +631,9 @@ async def measure_speed_async(node: Node, timeout: float, window: float) -> floa
         # 如果下载的数据连 128KB (131072 bytes) 都没有，说明握手后立刻被切断（或只收到了头部碎片）。
         # 这根本不足以评估真实带宽，直接淘汰。
         if bytes_received < 131072:
+            if _VERBOSE:
+                print(f"[-] 测速失败 {node.ip}:{node.port}：只收到 {bytes_received} 字节"
+                      f"（{total_time:.2f}s 内被切断）")
             return 0.0
             
         # 2. 最小时间基准防御：
@@ -633,8 +642,27 @@ async def measure_speed_async(node: Node, timeout: float, window: float) -> floa
         effective_time = max(total_time, 0.2)
 
         return round((bytes_received * 8) / (effective_time * 1_000_000), 2)
-    except Exception:
+    except Exception as e:
+        if _VERBOSE:
+            print(f"[-] 测速失败 {node.ip}:{node.port}：{type(e).__name__}: {e}")
         return 0.0
+
+
+async def measure_speed_async(node: Node, timeout: float, window: float) -> float:
+    """单节点测速；0 结果再重试一次（CF 边缘经常第一次握手成功却不发数据）。
+
+    重试只发生在失败时，成功节点不会多花流量。
+    """
+    speed = await _measure_once(node, timeout, window)
+    if speed <= 0:
+        if _VERBOSE:
+            print(f"--- [INFO] {node.ip}:{node.port} 首次 0Mbps，0.5 秒后重试一次 ---")
+        await asyncio.sleep(0.5)
+        retry = await _measure_once(node, timeout, window)
+        if retry > 0:
+            return retry
+        return 0.0
+    return speed
 
 async def run_speed_tests(
     candidates: Sequence[TcpResult],
@@ -913,7 +941,10 @@ async def run(config: AppConfig) -> int:
     return 0
 
 def main() -> int:
-    return asyncio.run(run(parse_args()))
+    global _VERBOSE
+    config = parse_args()
+    _VERBOSE = bool(config.verbose)
+    return asyncio.run(run(config))
 
 if __name__ == "__main__":
     raise SystemExit(main())
