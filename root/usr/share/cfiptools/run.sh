@@ -65,7 +65,7 @@ load_uci() {
     CFG_blocked_regions=$(uci_get blocked_regions "")
     CFG_git_http_proxy=$(uci_get git_http_proxy "")
     CFG_git_https_proxy=$(uci_get git_https_proxy "")
-    CFG_bypass_proxy_method=$(uci_get bypass_proxy_method "env")
+    CFG_bypass_proxy_method=$(uci_get bypass_proxy_method "nftables")
     CFG_pre_test_command=$(uci_get pre_test_command "")
     CFG_post_test_command=$(uci_get post_test_command "")
 }
@@ -110,9 +110,12 @@ apply_proxy_bypass() {
 
     : > "$BYPASS_HANDLE_FILE"
     list_output_chains | while read -r fam tbl chn; do
-        if ! nft insert rule "$fam" "$tbl" "$chn" \
-                meta mark "$BYPASS_MARK" counter comment "\"$BYPASS_COMMENT\"" return 2>/dev/null; then
-            log "WARN: 无法向 $fam/$tbl/$chn 插入旁路规则"
+        # 注意：nft 的 comment 必须放在整条规则的**最后**，写在 verdict 前面会报
+        # "syntax error, unexpected return"（nftables 1.1.6 实测）
+        err=$(nft insert rule "$fam" "$tbl" "$chn" \
+                meta mark "$BYPASS_MARK" counter return comment "\"$BYPASS_COMMENT\"" 2>&1)
+        if [ $? -ne 0 ]; then
+            log "WARN: 无法向 $fam/$tbl/$chn 插入旁路规则：$err"
             continue
         fi
         hnd=$(nft -a list chain "$fam" "$tbl" "$chn" 2>/dev/null | awk -v c="$BYPASS_COMMENT" '
@@ -173,6 +176,14 @@ PY_PID=""
 run_python() {
     cd "$DATA_DIR" || return 1
     # 后台起 + wait：这样中断信号到来时能精确杀掉自己这个子进程，而不是 pkill 全场
+    if ! command -v python3 >/dev/null 2>&1; then
+        log "ERROR: 找不到 python3，请先安装：apk add python3"
+        set_status "失败"
+        uci -q set cfiptools.config.last_result="no_python3"
+        uci -q set cfiptools.config.last_run="$(date '+%Y-%m-%d %H:%M:%S')"
+        return 127
+    fi
+
     python3 -u "$DATA_DIR/update.py" "$@" >> "$LOG_FILE" 2>&1 &
     PY_PID=$!
     rc=0
@@ -306,6 +317,7 @@ run_test() {
             log "update.py: 本轮没有节点通过测速，已保留上一轮的 ${FULL_OUTPUT} / ${BEST_OUTPUT}"
             cleanup_proxy_bypass
             run_post_command
+            uci -q set cfiptools.config.last_run="$(date '+%Y-%m-%d %H:%M:%S')"
             uci -q set cfiptools.config.last_result="no_valid_node"
             uci -q commit cfiptools
             exit 0
