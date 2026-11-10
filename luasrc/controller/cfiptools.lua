@@ -168,7 +168,7 @@ function action_reset()
         port_whitelist = "", best_top = "3",
         numbered_regions = "1", verbose = "0", github_upload_enabled = "0", github_repo = "",
         github_branch = "main", github_token = "", github_message = "Update IP and README",
-        git_http_proxy = "", git_https_proxy = "", bypass_proxy_method = "env",
+        git_http_proxy = "", git_https_proxy = "", bypass_proxy_method = "nftables",
         pre_test_command = "", post_test_command = "", last_run = "", last_result = ""
     }
 

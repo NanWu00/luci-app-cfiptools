@@ -88,10 +88,19 @@ list_output_chains() {
 apply_proxy_bypass() {
     local method="${CFG_bypass_proxy_method:-nftables}"
     export http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" no_proxy="*" NO_PROXY="*"
-    if [ "$method" != "nftables" ]; then
-        log "Bypass method '$method'：不修改防火墙规则，仅清空代理环境变量"
-        return 0
-    fi
+    case "$method" in
+        none|off|0)
+            log "旁路已关闭（bypass_proxy_method=$method）：测速流量仍可能被透明代理劫持"
+            return 0
+            ;;
+        nftables|"")
+            ;;
+        *)
+            # 老配置里的 env / iptables 都拦不住透明代理（env 只影响自己读环境变量的程序，
+            # iptables 在 fw4 下是另一张表），统一按 nftables 处理
+            log "bypass_proxy_method='$method' 已不支持，按 nftables 处理"
+            ;;
+    esac
     if ! command -v nft >/dev/null 2>&1; then
         log "WARNING: 未找到 nft，跳过旁路规则（测速流量可能被透明代理劫持）"
         return 0
