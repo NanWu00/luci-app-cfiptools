@@ -15,6 +15,12 @@ local function checked(name)
     return ""
 end
 
+local function checked_on(name)  -- 默认开启的复选框：选项缺失时也算开启
+    local v = cursor:get("cfiptools", "config", name)
+    if v == nil or v == "" or v == "1" then return "checked" end
+    return ""
+end
+
 local function selected(name, val)
     local v = cursor:get("cfiptools", "config", name)
     if v == (val or "") then return "selected" end
@@ -245,6 +251,56 @@ input[type="checkbox"]:focus-visible { outline: 2px solid rgba(0,0,0,0.1); outli
                 <div class="cf-field">
                     <div class="cf-field-label">下载超时 (秒)</div>
                     <div class="cf-field-input"><input type="text" name="speed_timeout_sec" class="cf-sm" value="<%=get("speed_timeout_sec","6")%>"></div>
+                </div>
+                <div class="cf-field cf-field-top">
+                    <div class="cf-field-label">下载窗口 (秒)</div>
+                    <div class="cf-field-input">
+                        <input type="text" name="speed_window_sec" class="cf-sm" value="<%=get("speed_window_sec","2")%>">
+                        <div class="cf-help">只统计头 N 秒的实际字节数，单节点最多下 10MB</div>
+                    </div>
+                </div>
+                <div class="cf-field cf-field-top">
+                    <div class="cf-field-label">TLS 握手探针</div>
+                    <div class="cf-field-input">
+                        <div class="cf-cb-item"><input type="checkbox" name="tls_probe" value="1" id="cb_tls" <%=checked_on("tls_probe")%>><span>测速前先做 TLS 握手</span></div>
+                        <div class="cf-help">edgetunnel 走 TLS+WS，TCP 能连不代表 TLS 不被重置</div>
+                    </div>
+                </div>
+                <div class="cf-field">
+                    <div class="cf-field-label">TLS 超时 (秒)</div>
+                    <div class="cf-field-input"><input type="text" name="tls_timeout_sec" class="cf-sm" value="<%=get("tls_timeout_sec","3")%>"></div>
+                </div>
+                <div class="cf-field">
+                    <div class="cf-field-label">TLS 并发</div>
+                    <div class="cf-field-input"><input type="text" name="tls_workers" class="cf-sm" value="<%=get("tls_workers","8")%>"></div>
+                </div>
+                <div class="cf-field cf-field-top">
+                    <div class="cf-field-label">探针 SNI</div>
+                    <div class="cf-field-input">
+                        <input type="text" name="speed_sni" value="<%=get("speed_sni","")%>" placeholder="speed.cloudflare.com">
+                        <div class="cf-help">留空 = 跟随测速域名；填 worker 域名可验证该 SNI 是否被针对</div>
+                    </div>
+                </div>
+                <div class="cf-field cf-field-top">
+                    <div class="cf-field-label">测速域名</div>
+                    <div class="cf-field-input">
+                        <input type="text" name="speed_domain" value="<%=get("speed_domain","speed.cloudflare.com")%>">
+                        <div class="cf-help">下载测速的 Host/SNI，需要能提供 /__down 大文件</div>
+                    </div>
+                </div>
+                <div class="cf-field cf-field-top">
+                    <div class="cf-field-label">端口白名单</div>
+                    <div class="cf-field-input">
+                        <input type="text" name="port_whitelist" value="<%=get("port_whitelist","")%>" placeholder="443,2053,8443">
+                        <div class="cf-help">逗号分隔；留空 = 不按端口过滤</div>
+                    </div>
+                </div>
+                <div class="cf-field cf-field-top">
+                    <div class="cf-field-label">优选文件 每区 Top N</div>
+                    <div class="cf-field-input">
+                        <input type="text" name="best_top" class="cf-sm" value="<%=get("best_top","3")%>">
+                        <div class="cf-help">best_ips.txt 按区域取速度前 N，不再因低于最低速度而清空</div>
+                    </div>
                 </div>
                 <div class="cf-field">
                     <div class="cf-field-label">下载并发数</div>

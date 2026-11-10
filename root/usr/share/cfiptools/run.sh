@@ -41,6 +41,14 @@ load_uci() {
     CFG_strict_tcp_count=$(uci_get strict_tcp_count "0")
     CFG_speed_test_count=$(uci_get speed_test_count "1")
     CFG_top_per_region=$(uci_get top_per_region "5")
+    CFG_best_top=$(uci_get best_top "3")
+    CFG_tls_probe=$(uci_get tls_probe "1")
+    CFG_tls_timeout_sec=$(uci_get tls_timeout_sec "3")
+    CFG_tls_workers=$(uci_get tls_workers "8")
+    CFG_speed_sni=$(uci_get speed_sni "")
+    CFG_speed_domain=$(uci_get speed_domain "speed.cloudflare.com")
+    CFG_speed_window_sec=$(uci_get speed_window_sec "2")
+    CFG_port_whitelist=$(uci_get port_whitelist "")
     CFG_max_nodes=$(uci_get max_nodes "0")
     CFG_show_latency=$(uci_get show_latency "1")
     CFG_show_bandwidth=$(uci_get show_bandwidth "1")
@@ -255,6 +263,14 @@ run_test() {
     set -- "$@" "--strict-tcp-count" "${CFG_strict_tcp_count:-0}"
     set -- "$@" "--speed-count" "${CFG_speed_test_count:-1}"
     set -- "$@" "--top" "${CFG_top_per_region:-5}"
+    set -- "$@" "--best-top" "${CFG_best_top:-3}"
+    set -- "$@" "--tls-timeout" "${CFG_tls_timeout_sec:-3}"
+    set -- "$@" "--tls-workers" "${CFG_tls_workers:-8}"
+    set -- "$@" "--speed-domain" "${CFG_speed_domain:-speed.cloudflare.com}"
+    set -- "$@" "--speed-window" "${CFG_speed_window_sec:-2}"
+    if [ -n "${CFG_speed_sni:-}" ]; then set -- "$@" "--sni" "${CFG_speed_sni}"; fi
+    if [ -n "${CFG_port_whitelist:-}" ]; then set -- "$@" "--ports" "${CFG_port_whitelist}"; fi
+    if [ "${CFG_tls_probe:-1}" != "1" ]; then set -- "$@" "--no-tls-probe"; fi
     set -- "$@" "--show-latency" "${CFG_show_latency:-1}"
     set -- "$@" "--show-mbps" "${CFG_show_bandwidth:-1}"
     set -- "$@" "--fwmark" "${BYPASS_MARK}"

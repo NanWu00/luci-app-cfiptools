@@ -18,14 +18,14 @@ end
 function action_save()
     local uci = require "luci.model.uci"
     local cursor = uci.cursor()
-    local checkbox_fields = { "enabled", "download_input", "github_upload_enabled", "show_latency", "show_bandwidth", "numbered_regions", "verbose", "update_readme" }
+    local checkbox_fields = { "enabled", "download_input", "github_upload_enabled", "show_latency", "show_bandwidth", "numbered_regions", "verbose", "update_readme", "tls_probe" }
 
     for _, name in ipairs(checkbox_fields) do
         local val = luci.http.formvalue(name)
         cursor:set("cfiptools", "config", name, val or "0")
     end
 
-    local fields = { "cron_schedule", "input_url", "download_timeout", "input_file", "full_output_file", "best_output_file", "tcp_timeout_ms", "tcp_workers", "speed_timeout_sec", "speed_workers", "min_speed_mbps", "max_latency_ms", "strict_tcp_count", "speed_test_count", "top_per_region", "max_nodes", "fast_label", "readme_file", "raw_base_url", "blocked_regions", "github_repo", "github_branch", "github_token", "github_message", "git_http_proxy", "git_https_proxy", "bypass_proxy_method", "pre_test_command", "post_test_command" }
+    local fields = { "cron_schedule", "input_url", "download_timeout", "input_file", "full_output_file", "best_output_file", "tcp_timeout_ms", "tcp_workers", "speed_timeout_sec", "speed_workers", "min_speed_mbps", "max_latency_ms", "strict_tcp_count", "speed_test_count", "top_per_region", "max_nodes", "fast_label", "readme_file", "raw_base_url", "blocked_regions", "github_repo", "github_branch", "github_token", "github_message", "git_http_proxy", "git_https_proxy", "bypass_proxy_method", "pre_test_command", "post_test_command", "tls_timeout_sec", "tls_workers", "speed_sni", "speed_domain", "speed_window_sec", "port_whitelist", "best_top" }
 
     for _, name in ipairs(fields) do
         local val = luci.http.formvalue(name)
@@ -163,6 +163,9 @@ function action_reset()
         speed_timeout_sec = "6", speed_workers = "5", min_speed_mbps = "16",
         max_latency_ms = "0", strict_tcp_count = "0", speed_test_count = "1", top_per_region = "5",
         max_nodes = "0", show_latency = "1", show_bandwidth = "1", fast_label = "⚡",
+        tls_probe = "1", tls_timeout_sec = "3", tls_workers = "8",
+        speed_sni = "", speed_domain = "speed.cloudflare.com", speed_window_sec = "2",
+        port_whitelist = "", best_top = "3",
         numbered_regions = "1", verbose = "0", github_upload_enabled = "0", github_repo = "",
         github_branch = "main", github_token = "", github_message = "Update IP and README",
         git_http_proxy = "", git_https_proxy = "", bypass_proxy_method = "env",
