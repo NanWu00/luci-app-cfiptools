@@ -12,15 +12,22 @@ jobs:
   build:
     name: 编译 luci-app-cfiptools
     runs-on: ubuntu-22.04
-
+    # 防止 runner 卡在 apt 上无限挂起（2026-11-10 遇到过卡 48 分钟）
+    timeout-minutes: 60
     steps:
       - name: 检出源码
         uses: actions/checkout@v4
 
       - name: 配置编译环境
+        # runner 镜像本身已自带绝大部分编译工具；apt 偶发挂起（2026-11-10 卡了 48 分钟），
+        # 所以这里加超时与重试，并允许失败——真缺包后面的 SDK 编译会暴露出来
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libncurses5-dev gawk git libssl-dev gettext zlib1g-dev swig unzip time rsync python3 wget curl zstd
+          sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=20 || echo "apt update failed, continue"
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libncurses5-dev gawk git libssl-dev gettext \
+            zlib1g-dev swig unzip time rsync wget curl zstd || echo "apt install failed, continue"
+          for t in make gcc gawk unzip rsync zstd; do command -v "$t" >/dev/null || echo "MISSING: $t"; done
 
       - name: 动态获取 ImmortalWrt Snapshot 最新 SDK
         run: |
