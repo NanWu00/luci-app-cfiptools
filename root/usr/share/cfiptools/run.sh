@@ -8,7 +8,7 @@ STATUS_FILE="/var/run/cfiptools.status"
 LOG_FILE="/var/log/cfiptools.log"
 PID_FILE="/var/run/cfiptools.pid"
 
-log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"; }
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE" 2>/dev/null || true; }
 set_status() { echo "$1" > "$STATUS_FILE"; log "STATUS: $1"; }
 
 load_uci() {
@@ -62,61 +62,77 @@ load_uci() {
     CFG_post_test_command=$(uci_get post_test_command "")
 }
 
-apply_proxy_bypass() {
-    local method="${CFG_bypass_proxy_method:-env}"
-    export http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" no_proxy="*" NO_PROXY="*"
-    case "$method" in
-        iptables)
-            if command -v iptables >/dev/null 2>&1; then
-                iptables -t nat -I OUTPUT 1 -m owner --uid-owner root -j RETURN -m comment --comment "cfiptools_bypass" 2>/dev/null || true
-                iptables -t mangle -I OUTPUT 1 -m owner --uid-owner root -j RETURN -m comment --comment "cfiptools_bypass" 2>/dev/null || true
-                log "Added iptables bypass rule"
-            fi ;;
-        nftables)
-            if command -v nft >/dev/null 2>&1; then
-                nft list ruleset 2>/dev/null | awk '
-                    /table (inet|ip|ip6) / { fam=$2; tbl=$3; gsub(/\"/, "", tbl) }
-                    /chain/ { chn=$2; gsub(/\"/, "", chn) }
-                    /hook output/ { print fam, tbl, chn }
-                ' | while read -r fam tbl chn; do
-                    nft insert rule "$fam" "$tbl" "$chn" meta skuid root counter return comment \"cfiptools_bypass\" 2>/dev/null || true
-                done
-                log "Added dynamic nftables bypass rules"
-            fi ;;
-    esac
+# 旁路方案：给测速 socket 打 SO_MARK，只在每条 output 链首插一条"见 mark 即 return"的规则。
+# 相比 skuid root，影响面从"整机 root 流量"缩小到"本脚本自己的连接"。
+BYPASS_MARK="0xcf"
+BYPASS_COMMENT="cfiptools_bypass"
+BYPASS_HANDLE_FILE="/var/run/cfiptools.nft.handles"
+
+# 找出所有挂在 output 钩子上的链（不写死 fw4：homeproxy 等可能自建 table）
+list_output_chains() {
+    nft list ruleset 2>/dev/null | awk '
+        /^[[:space:]]*table (inet|ip|ip6) / { fam=$2; tbl=$3; gsub(/"/, "", tbl) }
+        /^[[:space:]]*chain[[:space:]]/ { chn=$2; gsub(/"/, "", chn) }
+        /hook output/ { print fam, tbl, chn }
+    '
 }
 
+apply_proxy_bypass() {
+    local method="${CFG_bypass_proxy_method:-nftables}"
+    export http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" no_proxy="*" NO_PROXY="*"
+    if [ "$method" != "nftables" ]; then
+        log "Bypass method '$method'：不修改防火墙规则，仅清空代理环境变量"
+        return 0
+    fi
+    if ! command -v nft >/dev/null 2>&1; then
+        log "WARNING: 未找到 nft，跳过旁路规则（测速流量可能被透明代理劫持）"
+        return 0
+    fi
+
+    cleanup_proxy_bypass   # 先清残留，避免上次异常退出留下的规则被重复插入
+
+    : > "$BYPASS_HANDLE_FILE"
+    list_output_chains | while read -r fam tbl chn; do
+        if ! nft insert rule "$fam" "$tbl" "$chn" \
+                meta mark "$BYPASS_MARK" counter comment "\"$BYPASS_COMMENT\"" return 2>/dev/null; then
+            log "WARN: 无法向 $fam/$tbl/$chn 插入旁路规则"
+            continue
+        fi
+        hnd=$(nft -a list chain "$fam" "$tbl" "$chn" 2>/dev/null | awk -v c="$BYPASS_COMMENT" '
+            $0 ~ c { for (i=1; i<=NF; i++) if ($i=="handle") { print $(i+1); exit } }
+        ')
+        [ -n "$hnd" ] && printf '%s %s %s %s\n' "$fam" "$tbl" "$chn" "$hnd" >> "$BYPASS_HANDLE_FILE"
+    done
+
+    applied=0
+    if [ -s "$BYPASS_HANDLE_FILE" ]; then applied=$(wc -l < "$BYPASS_HANDLE_FILE"); fi
+    log "旁路规则已插入：mark=$BYPASS_MARK，覆盖 $applied 条 output 链"
+    [ "$applied" -gt 0 ] || log "WARNING: 没有可用的 output 链，透明代理可能仍会劫持测速流量"
+}
+
+# 幂等清理：先按 handle 文件精确删除，再按注释兜底扫描（handle 文件可能因 kill -9 丢失）
 cleanup_proxy_bypass() {
-    local method="${CFG_bypass_proxy_method:-env}"
-    case "$method" in
-        iptables)
-            while iptables -t nat -D OUTPUT -m owner --uid-owner root -j RETURN -m comment --comment "cfiptools_bypass" 2>/dev/null; do :; done
-            while iptables -t mangle -D OUTPUT -m owner --uid-owner root -j RETURN -m comment --comment "cfiptools_bypass" 2>/dev/null; do :; done
-            log "Removed iptables bypass rule" ;;
-        nftables)
-            if command -v nft >/dev/null 2>&1; then
-                nft -a list ruleset 2>/dev/null | awk '
-                    /table (inet|ip|ip6) / { fam=$2; tbl=$3; gsub(/\"/, "", tbl) }
-                    /chain/ { chn=$2; gsub(/\"/, "", chn) }
-                    /cfiptools_bypass/ {
-                        for(i=1; i<=NF; i++) {
-                            if($i == "handle") {
-                                print fam, tbl, chn, $(i+1)
-                                break
-                            }
-                        }
-                    }
-                ' | while read -r fam tbl chn hnd; do
-                    nft delete rule "$fam" "$tbl" "$chn" handle "$hnd" 2>/dev/null || true
-                done
-                log "Removed dynamic nftables bypass rules"
-            fi ;;
-    esac
+    command -v nft >/dev/null 2>&1 || return 0
+    if [ -s "$BYPASS_HANDLE_FILE" ]; then
+        while read -r fam tbl chn hnd; do
+            nft delete rule "$fam" "$tbl" "$chn" handle "$hnd" 2>/dev/null || true
+        done < "$BYPASS_HANDLE_FILE"
+        rm -f "$BYPASS_HANDLE_FILE"
+    fi
+    nft -a list ruleset 2>/dev/null | awk -v c="$BYPASS_COMMENT" '
+        /^[[:space:]]*table (inet|ip|ip6) / { fam=$2; tbl=$3; gsub(/"/, "", tbl) }
+        /^[[:space:]]*chain[[:space:]]/ { chn=$2; gsub(/"/, "", chn) }
+        $0 ~ c {
+            for (i=1; i<=NF; i++) if ($i=="handle") { print fam, tbl, chn, $(i+1); break }
+        }
+    ' | while read -r fam tbl chn hnd; do
+        nft delete rule "$fam" "$tbl" "$chn" handle "$hnd" 2>/dev/null || true
+    done
+    log "旁路规则已清理"
 }
 
 # 提供给 Lua 的安全清理通道
 if [ "$1" = "cleanup" ]; then
-    load_uci
     cleanup_proxy_bypass
     exit 0
 fi
@@ -135,17 +151,35 @@ run_post_command() {
     fi
 }
 
+PY_PID=""
+
 run_python() {
-    cd "$DATA_DIR"
-    python3 -u "$DATA_DIR/update.py" "$@" >> "$LOG_FILE" 2>&1
+    cd "$DATA_DIR" || return 1
+    # 后台起 + wait：这样中断信号到来时能精确杀掉自己这个子进程，而不是 pkill 全场
+    python3 -u "$DATA_DIR/update.py" "$@" >> "$LOG_FILE" 2>&1 &
+    PY_PID=$!
+    rc=0
+    wait "$PY_PID" || rc=$?
+    PY_PID=""
+    return $rc
 }
 
-# 仅在异常退出时杀子进程，正常退出不杀
-cleanup_on_abort() {
+CLEANUP_DONE=0
+
+# 幂等清理：正常退出、失败退出、被信号打断，都会走到这里
+cleanup_all() {
+    [ "$CLEANUP_DONE" = "1" ] && return 0
+    CLEANUP_DONE=1
     cleanup_proxy_bypass
-    pkill -9 -f "update.py" 2>/dev/null || true
-    pkill -9 -f "curl.*speed.cloudflare.com" 2>/dev/null || true
     rm -f "$PID_FILE"
+}
+
+cleanup_on_abort() {
+    log "收到中断信号，开始清理"
+    if [ -n "$PY_PID" ]; then
+        kill -9 "$PY_PID" 2>/dev/null || true
+    fi
+    cleanup_all
 }
 
 run_test() {
@@ -161,9 +195,10 @@ run_test() {
     fi
     echo $$ > "$PID_FILE"
 
-    # 正常退出时不执行额外清理，仅记录完成
-    trap 'cleanup_on_abort' INT TERM
-    trap 'rm -f "$PID_FILE"; log "Normal exit"' EXIT
+    # 任何退出路径都保证撤销防火墙规则（原来只有正常路径手动清，崩溃/失败会残留）
+    trap 'cleanup_on_abort; exit 130' INT
+    trap 'cleanup_on_abort; exit 143' TERM
+    trap 'cleanup_all; log "Normal exit"' EXIT
 
     load_uci
     run_pre_command
@@ -222,6 +257,7 @@ run_test() {
     set -- "$@" "--top" "${CFG_top_per_region:-5}"
     set -- "$@" "--show-latency" "${CFG_show_latency:-1}"
     set -- "$@" "--show-mbps" "${CFG_show_bandwidth:-1}"
+    set -- "$@" "--fwmark" "${BYPASS_MARK}"
 
     if [ "${CFG_numbered_regions:-0}" = "1" ]; then set -- "$@" "--numbered"; fi
     if [ "${CFG_verbose:-0}" = "1" ]; then set -- "$@" "--verbose"; fi

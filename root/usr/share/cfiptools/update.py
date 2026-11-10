@@ -6,6 +6,7 @@ import os
 import sys
 import time
 import ssl
+import socket
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,6 +49,64 @@ print_lock = asyncio.Lock()
 _SSL_CTX = ssl.create_default_context()
 _SSL_CTX.check_hostname = False
 _SSL_CTX.verify_mode = ssl.CERT_NONE
+
+# 由 run.sh 传入；带该 mark 的连接会在 nft 的 output 链首被 return，从而绕过透明代理
+FWMARK = 0
+
+def parse_fwmark(value: str) -> int:
+    text = str(value).strip()
+    if not text:
+        return 0
+    try:
+        mark = int(text, 0)
+    except ValueError:
+        return 0
+    return mark if 0 <= mark <= 0xFFFFFFFF else 0
+
+def _new_socket(family: int) -> socket.socket:
+    sock = socket.socket(family, socket.SOCK_STREAM)
+    if FWMARK:
+        so_mark = getattr(socket, "SO_MARK", None)
+        if so_mark is not None:
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, so_mark, FWMARK)
+            except OSError:
+                pass
+    sock.setblocking(False)
+    return sock
+
+async def open_edge_connection(
+    host: str,
+    port: int,
+    timeout: float,
+    *,
+    ssl_ctx: "ssl.SSLContext | None" = None,
+    server_hostname: "str | None" = None,
+):
+    """连接 CF 边缘；自己建 socket 才能设 SO_MARK，所以不能直接用 open_connection(host, port)。"""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    infos = await loop.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    if not infos:
+        raise OSError(f"cannot resolve {host}")
+    family, _, _, _, sockaddr = infos[0]
+    sock = _new_socket(family)
+    try:
+        await asyncio.wait_for(
+            loop.sock_connect(sock, sockaddr),
+            timeout=max(deadline - loop.time(), 0.01),
+        )
+        kwargs = {}
+        if ssl_ctx is not None:
+            kwargs = {"ssl": ssl_ctx, "server_hostname": server_hostname}
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(sock=sock, **kwargs),
+            timeout=max(deadline - loop.time(), 0.01),
+        )
+        return reader, writer
+    except BaseException:
+        sock.close()
+        raise
 
 def parse_bool(value: str) -> bool:
     text = str(value).strip().lower()
@@ -131,7 +190,11 @@ def parse_args() -> AppConfig:
     parser.add_argument("--fast-label", type=str, default=DEFAULT_FAST_LABEL)
     parser.add_argument("--input-url", type=str, default=DEFAULT_INPUT_URL)
     parser.add_argument("--blocked-regions", type=str, default="")
+    parser.add_argument("--fwmark", type=str, default="0", help="socket SO_MARK，用于绕过透明代理")
     args = parser.parse_args()
+
+    global FWMARK
+    FWMARK = parse_fwmark(args.fwmark)
 
     return AppConfig(
         input_file=args.input,
@@ -208,10 +271,7 @@ async def tcping(node: Node, timeout: float) -> float | None:
     start = time.perf_counter()
     writer = None
     try:
-        _, writer = await asyncio.wait_for(
-            asyncio.open_connection(node.ip, node.port),
-            timeout=timeout
-        )
+        _, writer = await open_edge_connection(node.ip, node.port, timeout)
         return round((time.perf_counter() - start) * 1000, 2)
     except Exception:
         return None
@@ -380,13 +440,9 @@ async def verify_candidates_strict(
 
 async def measure_speed_async(node: Node, timeout: float, process_buffer: float) -> float:
     try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(
-                node.ip, node.port,
-                ssl=_SSL_CTX,
-                server_hostname=SPEED_DOMAIN
-            ),
-            timeout=timeout
+        reader, writer = await open_edge_connection(
+            node.ip, node.port, timeout,
+            ssl_ctx=_SSL_CTX, server_hostname=SPEED_DOMAIN
         )
 
         req = (

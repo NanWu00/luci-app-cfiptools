@@ -73,7 +73,8 @@ function action_stop_test()
     luci.sys.exec("sleep 1") -- 给予代理重置 1 秒钟的喘息时间
     
     -- 强效扫尾：保证没有任何僵尸测速并发进程遗留
-    local pids = luci.sys.exec("pgrep -f 'cfiptools' ; pgrep -f 'update.py' ; pgrep -f 'curl'"):gsub("\n", " ")
+    -- 只杀本插件的进程：用 [.] 让 pgrep 的正则不匹配外层 sh -c 自己的命令行（否则会把自己也干掉）
+    local pids = luci.sys.exec("pgrep -f 'cfiptools/run[.]sh' ; pgrep -f 'cfiptools/update[.]py'"):gsub("\n", " ")
     if pids ~= "" then
         for pid in pids:gmatch("%S+") do
             luci.sys.exec("kill -9 " .. pid .. " 2>/dev/null")
