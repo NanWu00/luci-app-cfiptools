@@ -8,6 +8,18 @@ STATUS_FILE="/var/run/cfiptools.status"
 LOG_FILE="/var/log/cfiptools.log"
 PID_FILE="/var/run/cfiptools.pid"
 
+# 日志超过 5MB 自动截断到尾部 1MB：verbose=1 时一次全量跑能写十几 MB，
+# /var/log 在持久分区上，长期不管会慢慢吃满 flash
+trim_log() {
+    [ -f "$LOG_FILE" ] || return 0
+    local size
+    size=$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)
+    if [ "${size:-0}" -gt 5242880 ]; then
+        tail -c 1048576 "$LOG_FILE" > "$LOG_FILE.tmp" 2>/dev/null \
+            && mv "$LOG_FILE.tmp" "$LOG_FILE"
+    fi
+}
+trim_log
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE" 2>/dev/null || true; }
 set_status() { echo "$1" > "$STATUS_FILE"; log "STATUS: $1"; }
 
