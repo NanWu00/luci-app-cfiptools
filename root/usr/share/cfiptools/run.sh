@@ -290,6 +290,17 @@ run_test() {
         log "update.py finished successfully"
     else
         exit_code=$?
+        # 退出码 2 = 没有任何节点通过测速，update.py 已保留上一轮结果文件。
+        # 这属于"本轮没测到"而不是"插件坏了"，不该报失败、也不该上传空结果。
+        if [ "$exit_code" = "2" ]; then
+            set_status "无有效节点(沿用上次)"
+            log "update.py: 本轮没有节点通过测速，已保留上一轮的 ${FULL_OUTPUT} / ${BEST_OUTPUT}"
+            cleanup_proxy_bypass
+            run_post_command
+            uci -q set cfiptools.config.last_result="no_valid_node"
+            uci -q commit cfiptools
+            exit 0
+        fi
         set_status "失败"
         log "update.py failed with exit code $exit_code"
         run_post_command
