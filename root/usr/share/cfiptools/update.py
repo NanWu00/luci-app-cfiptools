@@ -6,7 +6,6 @@ import os
 import sys
 import time
 import ssl
-import socket
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,23 +20,15 @@ DEFAULT_FULL_OUTPUT_FILE = Path("full_ips.txt")
 DEFAULT_TCP_TIMEOUT = 1.5
 DEFAULT_TCP_WORKERS = 200
 DEFAULT_SPEED_TIMEOUT = 6.0
-DEFAULT_SPEED_WINDOW = 2.0
-DEFAULT_SPEED_PROCESS_BUFFER = 8.0   # 已废弃，仅为兼容旧命令行保留
+DEFAULT_SPEED_PROCESS_BUFFER = 8.0
 DEFAULT_SPEED_WORKERS = 5
 DEFAULT_MIN_SPEED_MBPS = 16
 DEFAULT_TOP_PER_REGION = 5
-DEFAULT_BEST_TOP = 3
-DEFAULT_TLS_TIMEOUT = 3.0
-DEFAULT_TLS_WORKERS = 8
 
 SPEED_DOMAIN = "speed.cloudflare.com"
-SPEED_SNI = ""            # 空 = 跟随 SPEED_DOMAIN
 SPEED_PATH = "/__down"
-
-# 详细日志开关：由 --verbose 打开，用于把「为什么这个节点是 0 Mbps」说清楚
-_VERBOSE = False
-# 单节点只下 10MB：50 个候选 ≈ 500MB，足够判断吞吐，又不会把日流量推到 100GB+
-SPEED_REQUEST_BYTES = 10 * 1024 * 1024
+# 下载请求中固定请求 50MB 文件
+SPEED_REQUEST_BYTES = 52428800
 DEFAULT_FAST_LABEL = "优选高速"
 
 REGION_EMOJIS = {
@@ -57,64 +48,6 @@ print_lock = asyncio.Lock()
 _SSL_CTX = ssl.create_default_context()
 _SSL_CTX.check_hostname = False
 _SSL_CTX.verify_mode = ssl.CERT_NONE
-
-# 由 run.sh 传入；带该 mark 的连接会在 nft 的 output 链首被 return，从而绕过透明代理
-FWMARK = 0
-
-def parse_fwmark(value: str) -> int:
-    text = str(value).strip()
-    if not text:
-        return 0
-    try:
-        mark = int(text, 0)
-    except ValueError:
-        return 0
-    return mark if 0 <= mark <= 0xFFFFFFFF else 0
-
-def _new_socket(family: int) -> socket.socket:
-    sock = socket.socket(family, socket.SOCK_STREAM)
-    if FWMARK:
-        so_mark = getattr(socket, "SO_MARK", None)
-        if so_mark is not None:
-            try:
-                sock.setsockopt(socket.SOL_SOCKET, so_mark, FWMARK)
-            except OSError:
-                pass
-    sock.setblocking(False)
-    return sock
-
-async def open_edge_connection(
-    host: str,
-    port: int,
-    timeout: float,
-    *,
-    ssl_ctx: "ssl.SSLContext | None" = None,
-    server_hostname: "str | None" = None,
-):
-    """连接 CF 边缘；自己建 socket 才能设 SO_MARK，所以不能直接用 open_connection(host, port)。"""
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
-    infos = await loop.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-    if not infos:
-        raise OSError(f"cannot resolve {host}")
-    family, _, _, _, sockaddr = infos[0]
-    sock = _new_socket(family)
-    try:
-        await asyncio.wait_for(
-            loop.sock_connect(sock, sockaddr),
-            timeout=max(deadline - loop.time(), 0.01),
-        )
-        kwargs = {}
-        if ssl_ctx is not None:
-            kwargs = {"ssl": ssl_ctx, "server_hostname": server_hostname}
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(sock=sock, **kwargs),
-            timeout=max(deadline - loop.time(), 0.01),
-        )
-        return reader, writer
-    except BaseException:
-        sock.close()
-        raise
 
 def parse_bool(value: str) -> bool:
     text = str(value).strip().lower()
@@ -154,14 +87,6 @@ class AppConfig:
     fast_label: str
     input_url: str
     blocked_regions: str
-    tls_probe: bool
-    tls_timeout: float
-    tls_workers: int
-    sni: str
-    speed_domain: str
-    speed_window: float
-    port_whitelist: str
-    best_top: int
 
 @dataclass(frozen=True)
 class Node:
@@ -185,7 +110,6 @@ class SpeedResult:
     is_fast: bool
 
 def parse_args() -> AppConfig:
-    global FWMARK, SPEED_DOMAIN, SPEED_SNI
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--input", type=Path, default=DEFAULT_INPUT_FILE)
     parser.add_argument("-o", "--output", type=Path, default=DEFAULT_FULL_OUTPUT_FILE)
@@ -193,7 +117,7 @@ def parse_args() -> AppConfig:
     parser.add_argument("--tcp-timeout", type=float, default=DEFAULT_TCP_TIMEOUT)
     parser.add_argument("--tcp-workers", type=int, default=DEFAULT_TCP_WORKERS)
     parser.add_argument("--speed-timeout", type=float, default=DEFAULT_SPEED_TIMEOUT)
-    parser.add_argument("--speed-process-buffer", type=float, default=DEFAULT_SPEED_PROCESS_BUFFER, help=argparse.SUPPRESS)
+    parser.add_argument("--speed-process-buffer", type=float, default=DEFAULT_SPEED_PROCESS_BUFFER)
     parser.add_argument("--speed-workers", type=int, default=DEFAULT_SPEED_WORKERS)
     parser.add_argument("--min-speed", type=float, default=DEFAULT_MIN_SPEED_MBPS)
     parser.add_argument("--max-latency", type=float, default=0.0)
@@ -207,22 +131,7 @@ def parse_args() -> AppConfig:
     parser.add_argument("--fast-label", type=str, default=DEFAULT_FAST_LABEL)
     parser.add_argument("--input-url", type=str, default=DEFAULT_INPUT_URL)
     parser.add_argument("--blocked-regions", type=str, default="")
-    parser.add_argument("--fwmark", type=str, default="0", help="socket SO_MARK，用于绕过透明代理")
-    parser.add_argument("--tls-timeout", type=float, default=DEFAULT_TLS_TIMEOUT)
-    parser.add_argument("--tls-workers", type=int, default=DEFAULT_TLS_WORKERS)
-    parser.add_argument("--no-tls-probe", action="store_true", help="关闭 TLS 握手探针")
-    parser.add_argument("--sni", type=str, default="", help="TLS 探针 SNI，留空则跟随 --speed-domain")
-    parser.add_argument("--speed-domain", type=str, default=SPEED_DOMAIN)
-    parser.add_argument("--speed-window", type=float, default=DEFAULT_SPEED_WINDOW)
-    parser.add_argument("--best-top", type=int, default=DEFAULT_BEST_TOP)
-    parser.add_argument("--ports", type=str, default="", help="端口白名单，逗号分隔；空 = 不过滤")
     args = parser.parse_args()
-
-    FWMARK = parse_fwmark(args.fwmark)
-
-    if args.speed_domain.strip():
-        SPEED_DOMAIN = args.speed_domain.strip()
-    SPEED_SNI = (args.sni or "").strip() or SPEED_DOMAIN
 
     return AppConfig(
         input_file=args.input,
@@ -244,15 +153,7 @@ def parse_args() -> AppConfig:
         show_mbps=parse_bool(args.show_mbps),
         fast_label=args.fast_label,
         input_url=args.input_url,
-        blocked_regions=args.blocked_regions,
-        tls_probe=not args.no_tls_probe,
-        tls_timeout=max(0.5, args.tls_timeout),
-        tls_workers=args.tls_workers,
-        sni=SPEED_SNI,
-        speed_domain=SPEED_DOMAIN,
-        speed_window=max(0.5, args.speed_window),
-        port_whitelist=args.ports,
-        best_top=args.best_top
+        blocked_regions=args.blocked_regions
     )
 
 def parse_node(line: str) -> Node | None:
@@ -303,104 +204,14 @@ def set_status(text: str) -> None:
     except Exception:
         pass
 
-def parse_ports(text: str) -> set[int]:
-    ports: set[int] = set()
-    for part in str(text).replace(";", ",").split(","):
-        part = part.strip()
-        if not part:
-            continue
-        try:
-            port = int(part)
-        except ValueError:
-            print(f"--- [WARN] 忽略非法端口: {part}")
-            continue
-        if 1 <= port <= 65535:
-            ports.add(port)
-        else:
-            print(f"--- [WARN] 忽略越界端口: {part}")
-    return ports
-
-async def tls_handshake(node: Node, timeout: float, sni: str) -> float | None:
-    """TLS 握手探针：TCP 通但 TLS 被 RST 的节点在这里淘汰，而不是拖到下载阶段。"""
-    start = time.perf_counter()
-    writer = None
-    try:
-        _, writer = await open_edge_connection(
-            node.ip, node.port, timeout,
-            ssl_ctx=_SSL_CTX, server_hostname=sni
-        )
-        return round((time.perf_counter() - start) * 1000, 2)
-    except Exception:
-        return None
-    finally:
-        if writer:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:
-                pass
-
-async def run_tls_probe(
-    candidates: Sequence[TcpResult],
-    *,
-    timeout: float,
-    workers: int,
-    sni: str,
-    verbose: bool
-) -> list[TcpResult]:
-    if not candidates:
-        return []
-
-    set_status("TLS 握手探针")
-    print(f"--- [INFO] 开始 TLS 握手探针（SNI={sni}）---")
-
-    queue = asyncio.Queue()
-    results = []
-    total = len(candidates)
-    task_name = "TLS探针"
-    completed = 0
-
-    async def worker():
-        nonlocal completed
-        while True:
-            cand = await queue.get()
-            if cand is None:
-                queue.task_done()
-                return
-            try:
-                handshake_ms = await tls_handshake(cand.node, timeout, sni)
-                if handshake_ms is not None:
-                    results.append(TcpResult(node=cand.node, latency_ms=handshake_ms))
-                    if verbose:
-                        print(f"\n[TLS-OK] {cand.node.raw} -> {handshake_ms} ms")
-                elif verbose:
-                    print(f"\n[TLS-FAIL] {cand.node.raw} -> 握手失败/被重置")
-            finally:
-                async with print_lock:
-                    completed += 1
-                    print_progress(task_name, completed, total)
-                queue.task_done()
-
-    num_workers = positive_worker_count(workers, len(candidates))
-    tasks = [asyncio.create_task(worker()) for _ in range(num_workers)]
-    for cand in candidates:
-        queue.put_nowait(cand)
-    for _ in tasks:
-        queue.put_nowait(None)
-    await queue.join()
-    await asyncio.gather(*tasks)
-    print()
-
-    dropped = total - len(results)
-    print(f"--- [INFO] TLS 探针结束：通过 {len(results)} 个，淘汰 {dropped} 个 ---")
-    results.sort(key=lambda item: item.latency_ms)
-    return results
-
 async def tcping(node: Node, timeout: float) -> float | None:
     start = time.perf_counter()
     writer = None
     try:
-        _, writer = await open_edge_connection(node.ip, node.port, timeout)
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(node.ip, node.port),
+            timeout=timeout
+        )
         return round((time.perf_counter() - start) * 1000, 2)
     except Exception:
         return None
@@ -567,11 +378,15 @@ async def verify_candidates_strict(
 
     return list(valid_nodes.values())
 
-async def _measure_once(node: Node, timeout: float, window: float) -> float:
+async def measure_speed_async(node: Node, timeout: float, process_buffer: float) -> float:
     try:
-        reader, writer = await open_edge_connection(
-            node.ip, node.port, timeout,
-            ssl_ctx=_SSL_CTX, server_hostname=SPEED_DOMAIN
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(
+                node.ip, node.port,
+                ssl=_SSL_CTX,
+                server_hostname=SPEED_DOMAIN
+            ),
+            timeout=timeout
         )
 
         req = (
@@ -593,9 +408,6 @@ async def _measure_once(node: Node, timeout: float, window: float) -> float:
                 break
 
         if b"200 OK" not in header_data:
-            if _VERBOSE:
-                first = header_data.split(b"\r\n", 1)[0][:80]
-                print(f"[-] 测速失败 {node.ip}:{node.port}：HTTP 响应 {first!r}")
             writer.close()
             await writer.wait_closed()
             return 0.0
@@ -604,19 +416,13 @@ async def _measure_once(node: Node, timeout: float, window: float) -> float:
         header_end_idx = header_data.find(b"\r\n\r\n") + 4
         bytes_received = len(header_data) - header_end_idx
 
-        # 只测 window 秒：10MB 上限 + 2 秒窗口，够判断吞吐，又把单节点流量压到原来的 1/5
-        deadline = start_time + max(0.2, window)
         while True:
-            remaining = deadline - time.perf_counter()
-            if remaining <= 0:
-                break
-            try:
-                chunk = await asyncio.wait_for(reader.read(65536), timeout=remaining)
-            except asyncio.TimeoutError:
-                break
+            chunk = await asyncio.wait_for(reader.read(65536), timeout=2.0)
             if not chunk:
                 break
             bytes_received += len(chunk)
+            if time.perf_counter() - start_time > timeout:
+                break
 
         writer.close()
         await writer.wait_closed()
@@ -631,9 +437,6 @@ async def _measure_once(node: Node, timeout: float, window: float) -> float:
         # 如果下载的数据连 128KB (131072 bytes) 都没有，说明握手后立刻被切断（或只收到了头部碎片）。
         # 这根本不足以评估真实带宽，直接淘汰。
         if bytes_received < 131072:
-            if _VERBOSE:
-                print(f"[-] 测速失败 {node.ip}:{node.port}：只收到 {bytes_received} 字节"
-                      f"（{total_time:.2f}s 内被切断）")
             return 0.0
             
         # 2. 最小时间基准防御：
@@ -642,33 +445,14 @@ async def _measure_once(node: Node, timeout: float, window: float) -> float:
         effective_time = max(total_time, 0.2)
 
         return round((bytes_received * 8) / (effective_time * 1_000_000), 2)
-    except Exception as e:
-        if _VERBOSE:
-            print(f"[-] 测速失败 {node.ip}:{node.port}：{type(e).__name__}: {e}")
+    except Exception:
         return 0.0
-
-
-async def measure_speed_async(node: Node, timeout: float, window: float) -> float:
-    """单节点测速；0 结果再重试一次（CF 边缘经常第一次握手成功却不发数据）。
-
-    重试只发生在失败时，成功节点不会多花流量。
-    """
-    speed = await _measure_once(node, timeout, window)
-    if speed <= 0:
-        if _VERBOSE:
-            print(f"--- [INFO] {node.ip}:{node.port} 首次 0Mbps，0.5 秒后重试一次 ---")
-        await asyncio.sleep(0.5)
-        retry = await _measure_once(node, timeout, window)
-        if retry > 0:
-            return retry
-        return 0.0
-    return speed
 
 async def run_speed_tests(
     candidates: Sequence[TcpResult],
     *,
     timeout: float,
-    window: float,
+    process_buffer: float,
     workers: int,
     min_speed: float,
     test_count: int,
@@ -700,7 +484,7 @@ async def run_speed_tests(
                     return
                 try:
                     speed = await measure_speed_async(
-                        candidate.node, timeout, window
+                        candidate.node, timeout, process_buffer
                     )
                     node_speed_history[candidate.node].append(speed)
                     if verbose:
@@ -806,19 +590,8 @@ def write_results(
                 f"{result.node.ip}:{result.node.port}#{emoji} {region_name}{suffix}\n"
             )
 
-def select_best_by_region(results: Iterable[SpeedResult], limit: int) -> list[SpeedResult]:
-    """按区域取速度 Top N：min_speed 只用来打 is_fast 标记，不再决定文件里有没有内容。"""
-    groups = defaultdict(list)
-    for result in results:
-        groups[result.node.region].append(result)
-
-    picked = []
-    top = max(1, limit)
-    for region in sorted(groups.keys()):
-        region_sorted = sorted(groups[region], key=lambda x: (-x.speed_mbps, x.latency_ms))
-        picked.extend(region_sorted[:top])
-    picked.sort(key=lambda x: (-x.speed_mbps, x.latency_ms))
-    return picked
+def filter_fast_results(results: Iterable[SpeedResult]) -> list[SpeedResult]:
+    return [r for r in results if r.is_fast]
 
 async def run(config: AppConfig) -> int:
     if config.full_output_file.resolve() == config.best_output_file.resolve():
@@ -847,16 +620,6 @@ async def run(config: AppConfig) -> int:
         print(f"ERROR: 所有节点均被屏蔽规则剔除")
         return 1
 
-    # 端口白名单：edgetunnel 只走 TLS 端口，先剔掉用不上的，能省下大量探测与流量
-    wanted_ports = parse_ports(config.port_whitelist)
-    if wanted_ports:
-        before = len(nodes)
-        nodes = [n for n in nodes if n.port in wanted_ports]
-        print(f"--- [INFO] 端口白名单 {sorted(wanted_ports)}：剔除 {before - len(nodes)} 个节点 ---")
-        if not nodes:
-            print("ERROR: 端口白名单过滤后没有剩余节点")
-            return 1
-
     # 1. TCP 初筛
     tcp_results = await run_latency_tests(
         nodes,
@@ -872,20 +635,7 @@ async def run(config: AppConfig) -> int:
         config.max_latency_ms
     )
 
-    # 3. TLS 握手探针：淘汰 TCP 通但 TLS 被 RST 的节点
-    if config.tls_probe and candidates:
-        candidates = await run_tls_probe(
-            candidates,
-            timeout=config.tls_timeout,
-            workers=config.tls_workers,
-            sni=config.sni,
-            verbose=config.verbose
-        )
-        if not candidates:
-            print("--- [WARN] 所有候选节点 TLS 握手均失败，保留旧结果文件不覆盖 ---")
-            return 2
-
-    # 4. 严格复测（可选）
+    # 3. 严格复测（可选）
     if config.strict_tcp_count > 0:
         candidates = await verify_candidates_strict(
             candidates,
@@ -896,12 +646,12 @@ async def run(config: AppConfig) -> int:
             config.verbose
         )
 
-    # 5. 下载测速
+    # 4. 下载测速
     speed_results = (
         await run_speed_tests(
             candidates,
             timeout=config.speed_timeout,
-            window=config.speed_window,
+            process_buffer=config.speed_process_buffer,
             workers=config.speed_workers,
             min_speed=config.min_speed_mbps,
             test_count=config.speed_test_count,
@@ -915,12 +665,7 @@ async def run(config: AppConfig) -> int:
     valid_speed_results = [r for r in speed_results if r.speed_mbps > 0]
     valid_speed_results.sort(key=lambda item: (-item.speed_mbps, item.latency_ms))
 
-    if not valid_speed_results:
-        print("--- [WARN] 本轮没有任何节点测得有效速度，不覆盖结果文件（避免写出 0 字节）---")
-        return 2
-
-    # 优选文件不再依赖绝对阈值：按区域取速度 Top N，慢的节点也留着当备胎
-    best_results = select_best_by_region(valid_speed_results, config.best_top)
+    best_results = filter_fast_results(valid_speed_results)
 
     write_results(
         config.full_output_file,
@@ -941,10 +686,7 @@ async def run(config: AppConfig) -> int:
     return 0
 
 def main() -> int:
-    global _VERBOSE
-    config = parse_args()
-    _VERBOSE = bool(config.verbose)
-    return asyncio.run(run(config))
+    return asyncio.run(run(parse_args()))
 
 if __name__ == "__main__":
     raise SystemExit(main())

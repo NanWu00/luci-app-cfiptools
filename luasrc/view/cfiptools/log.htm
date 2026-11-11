@@ -67,11 +67,10 @@ function refreshLog() {
         .then(function(r){return r.json()})
         .then(function(d){
             var area = document.getElementById('log-area');
-            // 日志来自文件，可能包含 < & 等字符；一律按纯文本写入，杜绝存储型 XSS
             if (d.content && d.content !== '') {
-                area.textContent = d.content;
+                area.innerHTML = d.content;
             } else {
-                area.textContent = '暂无日志，请先运行测速。';
+                area.innerHTML = '<div class="cf-log-empty">暂无日志，请先运行测速。</div>';
             }
         });
 }

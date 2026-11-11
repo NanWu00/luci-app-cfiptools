@@ -18,14 +18,14 @@ end
 function action_save()
     local uci = require "luci.model.uci"
     local cursor = uci.cursor()
-    local checkbox_fields = { "enabled", "download_input", "github_upload_enabled", "show_latency", "show_bandwidth", "numbered_regions", "verbose", "update_readme", "tls_probe" }
+    local checkbox_fields = { "enabled", "download_input", "github_upload_enabled", "show_latency", "show_bandwidth", "numbered_regions", "verbose", "update_readme" }
 
     for _, name in ipairs(checkbox_fields) do
         local val = luci.http.formvalue(name)
         cursor:set("cfiptools", "config", name, val or "0")
     end
 
-    local fields = { "cron_schedule", "input_url", "download_timeout", "input_file", "full_output_file", "best_output_file", "tcp_timeout_ms", "tcp_workers", "speed_timeout_sec", "speed_workers", "min_speed_mbps", "max_latency_ms", "strict_tcp_count", "speed_test_count", "top_per_region", "max_nodes", "fast_label", "readme_file", "raw_base_url", "blocked_regions", "github_repo", "github_branch", "github_token", "github_message", "git_http_proxy", "git_https_proxy", "bypass_proxy_method", "pre_test_command", "post_test_command", "tls_timeout_sec", "tls_workers", "speed_sni", "speed_domain", "speed_window_sec", "port_whitelist", "best_top" }
+    local fields = { "cron_schedule", "input_url", "download_timeout", "input_file", "full_output_file", "best_output_file", "tcp_timeout_ms", "tcp_workers", "speed_timeout_sec", "speed_workers", "min_speed_mbps", "max_latency_ms", "strict_tcp_count", "speed_test_count", "top_per_region", "max_nodes", "fast_label", "readme_file", "raw_base_url", "blocked_regions", "github_repo", "github_branch", "github_token", "github_message", "git_http_proxy", "git_https_proxy", "bypass_proxy_method", "pre_test_command", "post_test_command" }
 
     for _, name in ipairs(fields) do
         local val = luci.http.formvalue(name)
@@ -73,8 +73,7 @@ function action_stop_test()
     luci.sys.exec("sleep 1") -- 给予代理重置 1 秒钟的喘息时间
     
     -- 强效扫尾：保证没有任何僵尸测速并发进程遗留
-    -- 只杀本插件的进程：用 [.] 让 pgrep 的正则不匹配外层 sh -c 自己的命令行（否则会把自己也干掉）
-    local pids = luci.sys.exec("pgrep -f 'cfiptools/run[.]sh' ; pgrep -f 'cfiptools/update[.]py'"):gsub("\n", " ")
+    local pids = luci.sys.exec("pgrep -f 'cfiptools' ; pgrep -f 'update.py' ; pgrep -f 'curl'"):gsub("\n", " ")
     if pids ~= "" then
         for pid in pids:gmatch("%S+") do
             luci.sys.exec("kill -9 " .. pid .. " 2>/dev/null")
@@ -163,12 +162,9 @@ function action_reset()
         speed_timeout_sec = "6", speed_workers = "5", min_speed_mbps = "16",
         max_latency_ms = "0", strict_tcp_count = "0", speed_test_count = "1", top_per_region = "5",
         max_nodes = "0", show_latency = "1", show_bandwidth = "1", fast_label = "⚡",
-        tls_probe = "1", tls_timeout_sec = "3", tls_workers = "8",
-        speed_sni = "", speed_domain = "speed.cloudflare.com", speed_window_sec = "2",
-        port_whitelist = "", best_top = "3",
         numbered_regions = "1", verbose = "0", github_upload_enabled = "0", github_repo = "",
         github_branch = "main", github_token = "", github_message = "Update IP and README",
-        git_http_proxy = "", git_https_proxy = "", bypass_proxy_method = "nftables",
+        git_http_proxy = "", git_https_proxy = "", bypass_proxy_method = "env",
         pre_test_command = "", post_test_command = "", last_run = "", last_result = ""
     }
 
